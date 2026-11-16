@@ -26,7 +26,17 @@ Data reality (verified Nov 16, 2026; corrected the same day):
   (direction vs resolution), not dollars.
 
 Run:  uvicorn tracker:app --host 0.0.0.0 --port 8000
-Endpoints: /live, /signals, /track-record, /windows, /health
+Endpoints: /live, /live/all, /signals, /track-record, /windows, /health
+
+Gold (v1, added Nov 16, 2026): the API also watches Kalshi's KXGOLD
+series and a public gold spot feed (api.gold-api.com/price/XAU,
+verified live). Gold is polled slowly — spot every 30s, markets every
+60s — because the daily market barely moves and the keyless Kalshi rate
+limit is undocumented (a burst of checks from one IP got a 429 on
+2026-11-16). Gold v1 serves the live spot and, when a gold market is
+open, its ticker/question/expiry/strike and live book. It serves NO gold
+signal: the market's own YES price is the market's view, and no bot
+signal is computed for gold until a gold strategy is built and validated.
 """
 
 import json
@@ -47,6 +57,11 @@ KALSHI_MARKETS = (
     "?series_ticker=KXBTC15M&limit=5&status=open"
 )
 KALSHI_ORDERBOOK = "https://api.elections.kalshi.com/trade-api/v2/markets"
+KALSHI_GOLD_MARKETS = (
+    "https://api.elections.kalshi.com/trade-api/v2/markets"
+    "?series_ticker=KXGOLD&limit=10&status=open"
+)
+GOLD_SPOT = "https://api.gold-api.com/price/XAU"
 COINBASE_SPOT = "https://api.coinbase.com/v2/prices/BTC-USD/spot"
 
 app = FastAPI(title="BTC Oracle Pro — public tracking API")
@@ -117,6 +132,12 @@ _state = {
     "levels_ts": None,
     "book": None,            # {yes_bid_cents, yes_ask_cents, no_bid_cents, no_ask_cents}
     "book_ts": None,
+    "gold_spot": None,       # USD/oz from the public gold feed
+    "gold_spot_ts": None,
+    "gold_market": None,     # {ticker, question, close_ts, strike_usd}
+    "gold_market_ts": None,
+    "gold_book": None,
+    "gold_book_ts": None,
     "started_at": time.time(),
     "poll_last_ok": None,
     "errors": [],
@@ -191,6 +212,48 @@ def fetch_book(ticker):
         }
     except Exception:
         return None
+
+
+def fetch_gold_spot():
+    """Live gold spot (USD/oz) from a free public feed. Never raises."""
+    try:
+        data = fetch_json(GOLD_SPOT)
+        return float(data["price"])
+    except Exception:
+        return None
+
+
+def fetch_gold_market():
+    """The open KXGOLD market closing soonest — or None when no gold
+    market is open (verified: none open 2026-11-16 evening). Gold
+    markets are daily; the tab shows an honest empty state until one
+    opens. Never raises."""
+    try:
+        data = fetch_json(KALSHI_GOLD_MARKETS)
+    except Exception as exc:  # noqa: BLE001
+        _state["errors"].append(f"kalshi gold {exc}")
+        return None
+    now = time.time()
+    best = None
+    for m in data.get("markets", []):
+        try:
+            close = datetime.fromisoformat(m["close_time"].replace("Z", "+00:00"))
+        except (KeyError, ValueError, AttributeError):
+            continue
+        close_ts = close.timestamp()
+        if close_ts <= now:
+            continue
+        if best is None or close_ts < best["close_ts"]:
+            strike = m.get("floor_strike")
+            if strike is None:
+                strike = m.get("strike_price")
+            best = {
+                "ticker": m["ticker"],
+                "question": m.get("question"),
+                "close_ts": close_ts,
+                "strike_usd": float(strike) if strike is not None else None,
+            }
+    return best
 
 
 def compute_levels(now):
@@ -461,6 +524,23 @@ def poll_forever():
             if now - (_state.get("levels_ts") or 0) >= 60:
                 _state["levels"] = compute_levels(now)
                 _state["levels_ts"] = now
+        # --- gold (slow: spot every ~30s, market every ~60s, book ~60s)
+        # Gold is a daily market; it does not need 5-second polling, and
+        # gentle polling respects the undocumented keyless rate limit.
+        if now - (_state.get("gold_spot_ts") or 0) >= 30:
+            price = fetch_gold_spot()
+            if price:
+                _state["gold_spot"] = price
+                _state["gold_spot_ts"] = now
+        if now - (_state.get("gold_market_ts") or 0) >= 60:
+            _state["gold_market"] = fetch_gold_market()
+            _state["gold_market_ts"] = now
+        gm = _state.get("gold_market")
+        if gm and now - (_state.get("gold_book_ts") or 0) >= 60:
+            book = fetch_book(gm["ticker"])
+            if book:
+                _state["gold_book"] = book
+                _state["gold_book_ts"] = now
         _state["errors"] = _state["errors"][-10:]
         _state["poll_last_ok"] = time.time()
         time.sleep(5)
@@ -514,12 +594,19 @@ def health():
             if _state.get("poll_last_ok")
             else None
         ),
+        "gold_spot_age_seconds": (
+            round(time.time() - _state["gold_spot_ts"])
+            if _state.get("gold_spot_ts")
+            else None
+        ),
+        "gold_market_ticker": (
+            _state["gold_market"]["ticker"] if _state.get("gold_market") else None
+        ),
         "recent_errors": _state["errors"][-3:],
     }
 
 
-@app.get("/live")
-def live():
+def live_btc_payload():
     win = _state["window"]
     spot = _state["spot"]
     target = _state["target"]
@@ -579,6 +666,69 @@ def live():
             }
         ),
     }
+
+
+@app.get("/live")
+def live():
+    return live_btc_payload()
+
+
+def live_gold_payload():
+    """Gold v1: live spot + the open gold market and its book, if any.
+    No bot signal — the market's own YES price is the market's view."""
+    now = time.time()
+    gm = _state.get("gold_market")
+    spot = _state.get("gold_spot")
+    book = _state.get("gold_book")
+    strike = gm["strike_usd"] if gm else None
+    return {
+        "as_of": datetime.fromtimestamp(now, tz=timezone.utc).isoformat(),
+        "spot_usd": spot,
+        "spot_age_seconds": (
+            round(now - _state["gold_spot_ts"]) if _state.get("gold_spot_ts") else None
+        ),
+        "spot_source": "api.gold-api.com/price/XAU (public feed)",
+        "market": (
+            {
+                "series": "KXGOLD",
+                "ticker": gm["ticker"],
+                "question": gm["question"],
+                "closes_in_seconds": max(0, round(gm["close_ts"] - now)),
+                "strike_usd": strike,
+                "spot_vs_strike_usd": (
+                    round(spot - strike, 2) if spot and strike else None
+                ),
+            }
+            if gm
+            else None
+        ),
+        "market_note": (
+            "No gold market open right now." if not gm else None
+        ),
+        "kalshi_book": (
+            {
+                "status": "LIVE",
+                "yes_bid_cents": book["yes_bid_cents"],
+                "yes_ask_cents": book["yes_ask_cents"],
+                "no_bid_cents": book["no_bid_cents"],
+                "no_ask_cents": book["no_ask_cents"],
+                "age_seconds": (
+                    round(now - _state["gold_book_ts"])
+                    if _state.get("gold_book_ts")
+                    else None
+                ),
+            }
+            if book
+            else None
+        ),
+        "signal": None,
+        "signal_note": "No gold signal yet — gold v1 shows the live spot and the market's own price. A gold signal needs its own strategy and validation run.",
+    }
+
+
+@app.get("/live/all")
+def live_all():
+    return {"btc_15m": live_btc_payload(), "gold": live_gold_payload()}
 
 
 @app.get("/signals")
@@ -660,7 +810,7 @@ def root():
         {
             "service": "BTC Oracle Pro — public tracking API",
             "paper_only": True,
-            "endpoints": ["/live", "/signals", "/track-record", "/windows", "/health"],
+            "endpoints": ["/live", "/live/all", "/signals", "/track-record", "/windows", "/health"],
             "note": "Signals are UNVALIDATED v1 logic. Not financial advice. No live trading.",
         }
     )

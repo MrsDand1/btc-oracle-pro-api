@@ -9,6 +9,8 @@ holds keys, never touches an account.
 - `GET /live` — current KXBTC15M window (ticker, countdown, minute of 15),
   live BTC spot price, computed target, spot vs target ($ and %),
   1-minute sigma, current signal, and an explicit Kalshi-book status.
+- `GET /live/all` — the 15-minute BTC feed plus the gold feed in one
+  call (`btc_15m` + `gold`), for the Pulse viewer tabs.
 - `GET /signals` — recent signals (direction, confidence, action, reason).
 - `GET /track-record` — win rate counted from settled windows: each
   window's last signal vs how it actually resolved.
@@ -39,6 +41,15 @@ holds keys, never touches an account.
   history exists — levels need data, and the free tier wipes history
   on restart. Signals note when spot is within $50 of the nearest
   level in their reason.
+- **Gold (v1):** live gold spot from the free public feed
+  `api.gold-api.com/price/XAU` (verified live Nov 16, 2026), polled
+  every 30 seconds, plus the open KXGOLD market when one exists
+  (ticker, question, expiry, strike, live book), polled every 60
+  seconds. No gold market was open on the evening of Nov 16, 2026 —
+  the feed honestly reports "No gold market open right now" until
+  one appears. Gold v1 serves NO signal: the market's own YES price
+  is the market's view, and a gold signal needs its own strategy and
+  validation run.
 - **Signals:** v1 momentum logic, UNVALIDATED. Nothing here is a
   validated strategy until it passes 100+ paper trades plus
   out-of-sample validation.
@@ -67,8 +78,13 @@ holds keys, never touches an account.
   Postgres (Neon or Supabase free tier) later, or move to the
   $6–12/month VPS already in the BTC Oracle Pro plan — that is the
   always-on fix.
-- **Rate limits are fine.** Kalshi's public API and Coinbase's public
-  price feed are both keyless; this service polls well inside them.
+- **Rate limits need care.** Kalshi's keyed limits (Basic: 200 read /
+  100 write tokens/sec) are generous, but the keyless limits this
+  service runs under are undocumented — a burst of checks from one IP
+  got an HTTP 429 on Nov 16, 2026. The service polls gently (BTC spot
+  every 5s, gold spot every 30s, gold markets every 60s) and stays
+  well inside what it has seen work; verification calls from one
+  machine should be spaced out, not fired in bursts.
 
 ## Later
 
