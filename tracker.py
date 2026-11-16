@@ -49,8 +49,14 @@ app = FastAPI(title="BTC Oracle Pro — public tracking API")
 
 # ---------------------------------------------------------------- db
 def db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
+    try:
+        # WAL mode: readers (dashboard/API endpoints) must not block the
+        # writer (poll loop). Lock contention froze the API 2026-11-16.
+        conn.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.Error:
+        pass
     return conn
 
 
@@ -144,11 +150,14 @@ def current_window():
 
 def sigma_1m(now):
     """Std dev of spot over the last 60 seconds, in dollars."""
-    conn = db()
-    rows = conn.execute(
-        "SELECT price FROM spot_samples WHERE ts >= ? ORDER BY ts", (now - 60,)
-    ).fetchall()
-    conn.close()
+    try:
+        conn = db()
+        rows = conn.execute(
+            "SELECT price FROM spot_samples WHERE ts >= ? ORDER BY ts", (now - 60,)
+        ).fetchall()
+        conn.close()
+    except Exception:
+        return None
     prices = [r["price"] for r in rows]
     if len(prices) < 5:
         return None
@@ -175,7 +184,8 @@ def settle_window(ticker):
     """Judge a closed window from the final-minute spot average."""
     conn = db()
     row = conn.execute(
-        "SELECT target, close_ts FROM windows WHERE ticker = ?", (ticker,)
+        "SELECT target, close_ts, resolution FROM windows WHERE ticker = ?",
+        (ticker,),
     ).fetchone()
     if not row or row["resolution"]:
         conn.close()
@@ -221,7 +231,14 @@ def poll_forever():
             if not prev or prev["ticker"] != win["ticker"]:
                 # window rolled: settle the old one, start the new one
                 if prev:
-                    settle_window(prev["ticker"])
+                    try:
+                        settle_window(prev["ticker"])
+                    except Exception as exc:  # noqa: BLE001
+                        # A settle failure must never kill the poll thread
+                        # (an uncaught settle error froze the API on
+                        # 2026-11-16). The window stays unsettled; the
+                        # error is visible in /health.
+                        _state["errors"].append(f"settle {exc}")
                 _state["window"] = win
                 _state["target"] = None
                 _state["target_provisional"] = False
@@ -285,7 +302,19 @@ def poll_forever():
         time.sleep(5)
 
 
-_poll_thread = threading.Thread(target=poll_forever, daemon=True)
+def _poll_supervised():
+    """Run the poll loop forever: if one tick raises, log it and restart
+    the loop instead of letting the thread die (2026-11-16 freeze)."""
+    while True:
+        try:
+            poll_forever()
+        except Exception as exc:  # noqa: BLE001
+            _state["errors"].append(f"poll {exc}")
+            _state["errors"] = _state["errors"][-10:]
+        time.sleep(5)
+
+
+_poll_thread = threading.Thread(target=_poll_supervised, daemon=True)
 _poll_thread.start()
 
 
@@ -295,11 +324,12 @@ def _watchdog():
     global _poll_thread
     while True:
         time.sleep(30)
-        last_ok = _state.get("poll_last_ok") or 0
-        if (not _poll_thread.is_alive()) or (time.time() - last_ok > 90):
+        # Restart ONLY a dead thread. Restarting on a stale heartbeat
+        # spawned extra threads that fought over the SQLite lock (2026-11-16).
+        if not _poll_thread.is_alive():
             _state["errors"].append("poll thread restarted by watchdog")
             _state["errors"] = _state["errors"][-10:]
-            _poll_thread = threading.Thread(target=poll_forever, daemon=True)
+            _poll_thread = threading.Thread(target=_poll_supervised, daemon=True)
             _poll_thread.start()
 
 
