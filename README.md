@@ -25,16 +25,17 @@ holds keys, never touches an account.
 - **Resolution:** judged from the final-minute spot average vs the
   target. That is an approximation of the real settlement rule, which
   uses the CF Benchmarks BRTI average — the API says so in its response.
-- **Kalshi book prices:** NOT available. Kalshi's public API returns no
-  bid/ask, volume, strike, or last price (verified Nov 16, 2026 —
-  snapshots null, orderbooks empty, even for settled markets). The API
-  says so instead of inventing numbers. Live book prices need a Kalshi
-  API key (WebSocket).
+- **Kalshi book prices:** LIVE. The per-market orderbook endpoint
+  returns live bids in `orderbook_fp` (yes_dollars/no_dollars bid
+  ladders; YES ask = 1 - NO bid), polled every ~10 seconds and served
+  in `/live` as `kalshi_book` (YES/NO bid and ask in cents). Corrected
+  Nov 16, 2026 — the earlier "orderbooks empty" finding read the
+  legacy `yes`/`no` keys Kalshi removed on 2026-03-12. Volume and the
+  live trade tape are still not available without a key (WebSocket).
 - **Signals:** v1 momentum logic, UNVALIDATED. Nothing here is a
   validated strategy until it passes 100+ paper trades plus
   out-of-sample validation.
-- **No money ledger in v1:** without live Kalshi prices there is no
-  executable entry price, so the API tracks signal correctness
+- **No money ledger in v1:** the API tracks signal correctness
   (direction vs resolution), not dollars. The paper-money ledger lives
   in the BTC Oracle Pro Dashboard, where trades are logged by hand.
 

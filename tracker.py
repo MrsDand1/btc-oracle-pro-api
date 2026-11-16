@@ -4,11 +4,14 @@ Tracks the live Kalshi 15-minute BTC window and serves it as public JSON:
 current window, spot price, computed target, sigma, signals, and the
 win rate counted from settled signals.
 
-Data reality (verified Nov 16, 2026):
-- Kalshi's public REST API returns the live window (ticker, close time)
-  but NO bid/ask, volume, strike, or last price — snapshots are null and
-  orderbooks are empty, even for settled markets. Live Kalshi book prices
-  need the WebSocket (API key), which this service does not use.
+Data reality (verified Nov 16, 2026; corrected the same day):
+- Kalshi's public REST API returns the live window (ticker, close time).
+  Market snapshots are all null (no volume, no last price), BUT the
+  per-market orderbook endpoint DOES return live bids in `orderbook_fp`
+  (yes_dollars/no_dollars bid ladders; YES ask = 1 - NO bid). The
+  earlier "orderbooks are empty" finding read the legacy `yes`/`no`
+  keys Kalshi removed on 2026-03-12. Live book prices need no key;
+  volume and the live trade tape do (WebSocket, API key).
 - Target price = the 60-second average of spot in the minute before the
   window opens. That is how the market's strike is defined. If the
   service starts mid-window and missed that minute, the target is marked
@@ -42,6 +45,7 @@ KALSHI_MARKETS = (
     "https://api.elections.kalshi.com/trade-api/v2/markets"
     "?series_ticker=KXBTC15M&limit=5&status=open"
 )
+KALSHI_ORDERBOOK = "https://api.elections.kalshi.com/trade-api/v2/markets"
 COINBASE_SPOT = "https://api.coinbase.com/v2/prices/BTC-USD/spot"
 
 app = FastAPI(title="BTC Oracle Pro — public tracking API")
@@ -99,6 +103,8 @@ _state = {
     "target_provisional": False,
     "sigma_1m": None,
     "last_signal": None,
+    "book": None,            # {yes_bid_cents, yes_ask_cents, no_bid_cents, no_ask_cents}
+    "book_ts": None,
     "started_at": time.time(),
     "poll_last_ok": None,
     "errors": [],
@@ -146,6 +152,33 @@ def current_window():
                 "close_ts": close_ts,
             }
     return best
+
+
+def fetch_book(ticker):
+    """Live bid/ask for one market from the public REST orderbook.
+
+    The book lives in `orderbook_fp`: yes_dollars/no_dollars bid ladders
+    (bids only). YES ask = 1 - NO bid, NO ask = 1 - YES bid. Returns
+    cents or None. Never raises — a failed fetch just leaves the last
+    good book in place.
+    """
+    try:
+        data = fetch_json(f"{KALSHI_ORDERBOOK}/{ticker}/orderbook")
+        ob = data.get("orderbook_fp", {})
+        yes = ob.get("yes_dollars") or []
+        no = ob.get("no_dollars") or []
+        if not yes or not no:
+            return None
+        yes_bid = max(float(p) for p, _ in yes)
+        no_bid = max(float(p) for p, _ in no)
+        return {
+            "yes_bid_cents": round(yes_bid * 100, 1),
+            "yes_ask_cents": round((1 - no_bid) * 100, 1),
+            "no_bid_cents": round(no_bid * 100, 1),
+            "no_ask_cents": round((1 - yes_bid) * 100, 1),
+        }
+    except Exception:
+        return None
 
 
 def sigma_1m(now):
@@ -297,6 +330,12 @@ def poll_forever():
                         "direction": direction, "confidence": conf,
                         "action": action, "reason": reason, "ts": now,
                     }
+            # --- live Kalshi book (every ~10s, public orderbook_fp)
+            if now - (_state.get("book_ts") or 0) >= 10:
+                book = fetch_book(win["ticker"])
+                if book:
+                    _state["book"] = book
+                    _state["book_ts"] = now
         _state["errors"] = _state["errors"][-10:]
         _state["poll_last_ok"] = time.time()
         time.sleep(5)
@@ -396,10 +435,23 @@ def live():
             if direction
             else None
         ),
-        "kalshi_book": {
-            "status": "LIVE DATA UNAVAILABLE",
-            "note": "Kalshi's public API returns no bid/ask, volume, strike, or last price. Live book prices need a Kalshi API key (WebSocket).",
-        },
+        "kalshi_book": (
+            {
+                "status": "LIVE",
+                "yes_bid_cents": _state["book"]["yes_bid_cents"],
+                "yes_ask_cents": _state["book"]["yes_ask_cents"],
+                "no_bid_cents": _state["book"]["no_bid_cents"],
+                "no_ask_cents": _state["book"]["no_ask_cents"],
+                "age_seconds": (
+                    round(now - _state["book_ts"]) if _state.get("book_ts") else None
+                ),
+            }
+            if _state.get("book")
+            else {
+                "status": "LIVE DATA UNAVAILABLE",
+                "note": "Kalshi's public orderbook returned no live bids right now.",
+            }
+        ),
     }
 
 
