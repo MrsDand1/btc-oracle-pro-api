@@ -94,6 +94,7 @@ _state = {
     "sigma_1m": None,
     "last_signal": None,
     "started_at": time.time(),
+    "poll_last_ok": None,
     "errors": [],
 }
 
@@ -110,18 +111,35 @@ def avg_spot(start_ts, end_ts):
 
 
 def current_window():
+    """The open 15-min market closing soonest — never just the first row.
+
+    The markets list order is not guaranteed, and at rollover the list can
+    be momentarily empty (old window closed, new one not yet listed).
+    An empty or unparseable list returns None instead of raising: a single
+    bad tick must never kill the poll thread (that froze the API 2026-11-16).
+    """
     try:
         data = fetch_json(KALSHI_MARKETS)
     except Exception as exc:  # noqa: BLE001 - surfaced in /health
         _state["errors"].append(f"kalshi {exc}")
         return None
-    markets = data.get("markets", [])
-    if not markets:
-        return None
-    m = markets[0]
-    close = datetime.fromisoformat(m["close_time"].replace("Z", "+00:00"))
-    close_ts = close.timestamp()
-    return {"ticker": m["ticker"], "open_ts": close_ts - 900, "close_ts": close_ts}
+    now = time.time()
+    best = None
+    for m in data.get("markets", []):
+        try:
+            close = datetime.fromisoformat(m["close_time"].replace("Z", "+00:00"))
+        except (KeyError, ValueError, AttributeError):
+            continue
+        close_ts = close.timestamp()
+        if close_ts <= now:
+            continue  # already closed; never the "current" window
+        if best is None or close_ts < best["close_ts"]:
+            best = {
+                "ticker": m["ticker"],
+                "open_ts": close_ts - 900,
+                "close_ts": close_ts,
+            }
+    return best
 
 
 def sigma_1m(now):
@@ -215,6 +233,11 @@ def poll_forever():
                     # started mid-window: provisional from earliest samples
                     early, n2 = avg_spot(win["open_ts"], win["open_ts"] + 120)
                     target, prov = early, True
+                if target is None and _state["spot"]:
+                    # restarted after minute 2: no pre-open or early samples
+                    # exist, so anchor provisionally to the live spot rather
+                    # than leaving the whole window targetless.
+                    target, prov = _state["spot"], True
                 _state["target"] = target
                 _state["target_provisional"] = prov
                 conn = db()
@@ -258,10 +281,29 @@ def poll_forever():
                         "action": action, "reason": reason, "ts": now,
                     }
         _state["errors"] = _state["errors"][-10:]
+        _state["poll_last_ok"] = time.time()
         time.sleep(5)
 
 
-threading.Thread(target=poll_forever, daemon=True).start()
+_poll_thread = threading.Thread(target=poll_forever, daemon=True)
+_poll_thread.start()
+
+
+def _watchdog():
+    """Restart the poll thread if it ever dies — a dead thread froze the
+    API on 2026-11-16 (spot and window stuck, every dashboard box empty)."""
+    global _poll_thread
+    while True:
+        time.sleep(30)
+        last_ok = _state.get("poll_last_ok") or 0
+        if (not _poll_thread.is_alive()) or (time.time() - last_ok > 90):
+            _state["errors"].append("poll thread restarted by watchdog")
+            _state["errors"] = _state["errors"][-10:]
+            _poll_thread = threading.Thread(target=poll_forever, daemon=True)
+            _poll_thread.start()
+
+
+threading.Thread(target=_watchdog, daemon=True).start()
 
 
 # ------------------------------------------------------------ endpoints
@@ -272,6 +314,11 @@ def health():
         "uptime_seconds": round(time.time() - _state["started_at"]),
         "spot_age_seconds": (
             round(time.time() - _state["spot_ts"]) if _state["spot_ts"] else None
+        ),
+        "poll_age_seconds": (
+            round(time.time() - _state["poll_last_ok"])
+            if _state.get("poll_last_ok")
+            else None
         ),
         "recent_errors": _state["errors"][-3:],
     }
