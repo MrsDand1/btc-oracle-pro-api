@@ -48,10 +48,12 @@ holds keys, never touches an account.
 - **Kalshi book prices:** LIVE. The per-market orderbook endpoint
   returns live bids in `orderbook_fp` (yes_dollars/no_dollars bid
   ladders; YES ask = 1 - NO bid), polled every ~10 seconds and served
-  in `/live` as `kalshi_book` (YES/NO bid and ask in cents). Corrected
-  Nov 16, 2026 — the earlier "orderbooks empty" finding read the
-  legacy `yes`/`no` keys Kalshi removed on 2026-03-12. Volume and the
-  live trade tape are still not available without a key (WebSocket).
+  in `/live` as `kalshi_book` (YES/NO bid and ask in cents, plus the
+  top-6 `yes_ladder`/`no_ladder` with sizes for the order-book panel).
+  Corrected Nov 16, 2026 — the earlier "orderbooks empty" finding read the
+  legacy `yes`/`no` keys Kalshi removed on 2026-03-12. Volume, open
+  interest, and last trade are still not available without a key
+  (WebSocket) — the API never invents them.
 - **Key levels:** support/resistance computed from the last 6 hours
   of spot samples (swing highs/lows clustered within $25, plus round
   $500 psychological levels), served in `/live` as `levels` with
