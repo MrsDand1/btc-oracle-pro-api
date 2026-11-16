@@ -1,8 +1,9 @@
 """BTC Oracle Pro — public tracking API (paper only, never live trades).
 
-Tracks the live Kalshi 15-minute BTC window and serves it as public JSON:
-current window, spot price, computed target, sigma, signals, and the
-win rate counted from settled signals.
+Tracks the live Kalshi 15-minute BTC and ETH windows and serves them as
+public JSON: current window, spot price, computed target, sigma, signals,
+and the win rate counted from settled signals. Also watches gold (live
+spot + the open KXGOLD market, no gold signal in v1).
 
 Data reality (verified Nov 16, 2026; corrected the same day):
 - Kalshi's public REST API returns the live window (ticker, close time).
@@ -24,19 +25,12 @@ Data reality (verified Nov 16, 2026; corrected the same day):
   No money ledger lives here: without live Kalshi prices there is no
   executable entry price, so this API tracks signal correctness
   (direction vs resolution), not dollars.
+- Gold (v1): live spot from a public feed + the open KXGOLD market
+  when one exists. No gold signal — the market's own YES price is the
+  market's view.
 
 Run:  uvicorn tracker:app --host 0.0.0.0 --port 8000
 Endpoints: /live, /live/all, /signals, /track-record, /windows, /health
-
-Gold (v1, added Nov 16, 2026): the API also watches Kalshi's KXGOLD
-series and a public gold spot feed (api.gold-api.com/price/XAU,
-verified live). Gold is polled slowly — spot every 30s, markets every
-60s — because the daily market barely moves and the keyless Kalshi rate
-limit is undocumented (a burst of checks from one IP got a 429 on
-2026-11-16). Gold v1 serves the live spot and, when a gold market is
-open, its ticker/question/expiry/strike and live book. It serves NO gold
-signal: the market's own YES price is the market's view, and no bot
-signal is computed for gold until a gold strategy is built and validated.
 """
 
 import json
@@ -56,6 +50,10 @@ KALSHI_MARKETS = (
     "https://api.elections.kalshi.com/trade-api/v2/markets"
     "?series_ticker=KXBTC15M&limit=5&status=open"
 )
+KALSHI_ETH_MARKETS = (
+    "https://api.elections.kalshi.com/trade-api/v2/markets"
+    "?series_ticker=KXETH15M&limit=5&status=open"
+)
 KALSHI_ORDERBOOK = "https://api.elections.kalshi.com/trade-api/v2/markets"
 KALSHI_GOLD_MARKETS = (
     "https://api.elections.kalshi.com/trade-api/v2/markets"
@@ -63,6 +61,7 @@ KALSHI_GOLD_MARKETS = (
 )
 GOLD_SPOT = "https://api.gold-api.com/price/XAU"
 COINBASE_SPOT = "https://api.coinbase.com/v2/prices/BTC-USD/spot"
+COINBASE_ETH_SPOT = "https://api.coinbase.com/v2/prices/ETH-USD/spot"
 
 app = FastAPI(title="BTC Oracle Pro — public tracking API")
 # Public read-only API: allow any web page to read it (GET only) so the
@@ -74,6 +73,46 @@ app.add_middleware(
     allow_methods=["GET"],
     allow_headers=["*"],
 )
+
+
+# ------------------------------------------------------- series config
+# One config per tracked 15-minute market. BTC keys are the bare names
+# (the original state keys); ETH keys carry the eth_ prefix. The poll
+# loop and the /live payload builder run the same code for both.
+BTC_CFG = {
+    "name": "BTC",
+    "series_ticker": "KXBTC15M",
+    "question": "BTC price up in next 15 mins?",
+    "window_secs": 900,
+    "spot_url": COINBASE_SPOT,
+    "spot_table": "spot_samples",
+    "markets_url": KALSHI_MARKETS,
+    "prominence": 5, "cluster": 25, "round_step": 500,
+    "keys": {
+        "spot": "spot", "spot_ts": "spot_ts", "window": "window",
+        "markets_ts": "markets_ts", "target": "target",
+        "target_provisional": "target_provisional", "sigma": "sigma_1m",
+        "last_signal": "last_signal", "levels": "levels",
+        "levels_ts": "levels_ts", "book": "book", "book_ts": "book_ts",
+    },
+}
+ETH_CFG = {
+    "name": "ETH",
+    "series_ticker": "KXETH15M",
+    "question": "ETH price up in next 15 mins?",
+    "window_secs": 900,
+    "spot_url": COINBASE_ETH_SPOT,
+    "spot_table": "eth_spot_samples",
+    "markets_url": KALSHI_ETH_MARKETS,
+    "prominence": 2, "cluster": 10, "round_step": 100,
+    "keys": {
+        "spot": "eth_spot", "spot_ts": "eth_spot_ts", "window": "eth_window",
+        "markets_ts": "eth_markets_ts", "target": "eth_target",
+        "target_provisional": "eth_target_provisional", "sigma": "eth_sigma_1m",
+        "last_signal": "eth_last_signal", "levels": "eth_levels",
+        "levels_ts": "eth_levels_ts", "book": "eth_book", "book_ts": "eth_book_ts",
+    },
+}
 
 
 # ---------------------------------------------------------------- db
@@ -94,6 +133,7 @@ def init_db():
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS spot_samples (ts REAL PRIMARY KEY, price REAL);
+        CREATE TABLE IF NOT EXISTS eth_spot_samples (ts REAL PRIMARY KEY, price REAL);
         CREATE TABLE IF NOT EXISTS windows (
             ticker TEXT PRIMARY KEY, open_ts REAL, close_ts REAL,
             target REAL, target_provisional INTEGER,
@@ -124,6 +164,7 @@ _state = {
     "spot": None,
     "spot_ts": None,
     "window": None,          # {ticker, open_ts, close_ts}
+    "markets_ts": None,
     "target": None,
     "target_provisional": False,
     "sigma_1m": None,
@@ -132,6 +173,18 @@ _state = {
     "levels_ts": None,
     "book": None,            # {yes_bid_cents, yes_ask_cents, no_bid_cents, no_ask_cents}
     "book_ts": None,
+    "eth_spot": None,
+    "eth_spot_ts": None,
+    "eth_window": None,
+    "eth_markets_ts": None,
+    "eth_target": None,
+    "eth_target_provisional": False,
+    "eth_sigma_1m": None,
+    "eth_last_signal": None,
+    "eth_levels": None,
+    "eth_levels_ts": None,
+    "eth_book": None,
+    "eth_book_ts": None,
     "gold_spot": None,       # USD/oz from the public gold feed
     "gold_spot_ts": None,
     "gold_market": None,     # {ticker, question, close_ts, strike_usd}
@@ -144,10 +197,10 @@ _state = {
 }
 
 
-def avg_spot(start_ts, end_ts):
+def avg_spot(start_ts, end_ts, table="spot_samples"):
     conn = db()
     row = conn.execute(
-        "SELECT AVG(price) AS a, COUNT(*) AS n FROM spot_samples "
+        f"SELECT AVG(price) AS a, COUNT(*) AS n FROM {table} "
         "WHERE ts >= ? AND ts < ?",
         (start_ts, end_ts),
     ).fetchone()
@@ -155,8 +208,8 @@ def avg_spot(start_ts, end_ts):
     return (row["a"], row["n"]) if row and row["n"] else (None, 0)
 
 
-def current_window():
-    """The open 15-min market closing soonest — never just the first row.
+def current_window(url, window_secs, tag):
+    """The open market closing soonest — never just the first row.
 
     The markets list order is not guaranteed, and at rollover the list can
     be momentarily empty (old window closed, new one not yet listed).
@@ -164,9 +217,9 @@ def current_window():
     bad tick must never kill the poll thread (that froze the API 2026-11-16).
     """
     try:
-        data = fetch_json(KALSHI_MARKETS)
+        data = fetch_json(url)
     except Exception as exc:  # noqa: BLE001 - surfaced in /health
-        _state["errors"].append(f"kalshi {exc}")
+        _state["errors"].append(f"{tag} markets {exc}")
         return None
     now = time.time()
     best = None
@@ -181,7 +234,7 @@ def current_window():
         if best is None or close_ts < best["close_ts"]:
             best = {
                 "ticker": m["ticker"],
-                "open_ts": close_ts - 900,
+                "open_ts": close_ts - window_secs,
                 "close_ts": close_ts,
             }
     return best
@@ -256,23 +309,23 @@ def fetch_gold_market():
     return best
 
 
-def compute_levels(now):
+def compute_levels(now, spot, table, prominence=5, cluster=25, round_step=500):
     """Support/resistance from recent spot history (swing highs/lows).
 
-    Builds 1-minute bars from spot_samples over the last 6 hours. A
-    swing high is a 1-min high at least $5 above its 3 neighbours each
-    side (the prominence bar keeps flat tops/bottoms from counting
-    twice); swings within $25 cluster into one level, counted by
-    touches. Round $500 levels are added as psychological levels
-    (touches 0, kind "round"). Returns None when there is under 30
-    minutes of history — levels need data to mean anything, and the
-    free tier wipes history on restart, so early levels are thin by
-    design.
+    Builds 1-minute bars from the spot table over the last 6 hours. A
+    swing high is a 1-min high at least `prominence` dollars above its 3
+    neighbours each side (the prominence bar keeps flat tops/bottoms from
+    counting twice); swings within `cluster` dollars merge into one
+    level, counted by touches. Round levels (every `round_step` dollars)
+    are added as psychological levels (touches 0, kind "round"). Returns
+    None when there is under 30 minutes of history — levels need data to
+    mean anything, and the free tier wipes history on restart, so early
+    levels are thin by design.
     """
     try:
         conn = db()
         rows = conn.execute(
-            "SELECT ts, price FROM spot_samples WHERE ts >= ? ORDER BY ts",
+            f"SELECT ts, price FROM {table} WHERE ts >= ? ORDER BY ts",
             (now - 6 * 3600,),
         ).fetchall()
         conn.close()
@@ -295,18 +348,18 @@ def compute_levels(now):
         for i in range(3, len(values) - 3):
             v = values[i]
             neigh = values[i - 3:i] + values[i + 1:i + 4]
-            if is_high and v - max(neigh) >= 5:
+            if is_high and v - max(neigh) >= prominence:
                 out.append((minutes[i], v))
-            if (not is_high) and min(neigh) - v >= 5:
+            if (not is_high) and min(neigh) - v >= prominence:
                 out.append((minutes[i], v))
         return out
 
-    def cluster(points, is_high):
+    def cluster_levels(points, is_high):
         levels = []
         for ts, price in sorted(points, key=lambda p: p[1], reverse=is_high):
             hit = None
             for lv in levels:
-                if abs(lv["price_usd"] - price) <= 25:
+                if abs(lv["price_usd"] - price) <= cluster:
                     hit = lv
                     break
             if hit:
@@ -323,16 +376,15 @@ def compute_levels(now):
                 })
         return levels
 
-    spot = _state["spot"]
-    res = [lv for lv in cluster(swings(highs, True), True)
+    res = [lv for lv in cluster_levels(swings(highs, True), True)
            if spot is None or lv["price_usd"] > spot]
-    sup = [lv for lv in cluster(swings(lows, False), False)
+    sup = [lv for lv in cluster_levels(swings(lows, False), False)
            if spot is None or lv["price_usd"] < spot]
     res.sort(key=lambda lv: lv["price_usd"])
     sup.sort(key=lambda lv: lv["price_usd"], reverse=True)
     if spot:
-        up = (int(spot // 500) + 1) * 500
-        dn = int(spot // 500) * 500
+        up = (int(spot // round_step) + 1) * round_step
+        dn = int(spot // round_step) * round_step
         res.append({"price_usd": float(up), "touches": 0,
                     "last_tested": None, "kind": "round"})
         sup.append({"price_usd": float(dn), "touches": 0,
@@ -349,12 +401,12 @@ def compute_levels(now):
     }
 
 
-def sigma_1m(now):
+def sigma_1m(now, table="spot_samples"):
     """Std dev of spot over the last 60 seconds, in dollars."""
     try:
         conn = db()
         rows = conn.execute(
-            "SELECT price FROM spot_samples WHERE ts >= ? ORDER BY ts", (now - 60,)
+            f"SELECT price FROM {table} WHERE ts >= ? ORDER BY ts", (now - 60,)
         ).fetchall()
         conn.close()
     except Exception:
@@ -381,7 +433,7 @@ def direction_and_confidence(spot, target, sig):
     return direction, confidence, None, None
 
 
-def settle_window(ticker):
+def settle_window(ticker, table="spot_samples"):
     """Judge a closed window from the final-minute spot average."""
     conn = db()
     row = conn.execute(
@@ -392,7 +444,7 @@ def settle_window(ticker):
         conn.close()
         return
     target, close_ts = row["target"], row["close_ts"]
-    avg, n = avg_spot(close_ts - 60, close_ts)
+    avg, n = avg_spot(close_ts - 60, close_ts, table)
     if avg is None or target is None:
         conn.close()
         return
@@ -405,125 +457,162 @@ def settle_window(ticker):
     conn.close()
 
 
-def poll_forever():
-    while True:
-        now = time.time()
-        # --- spot sample (every loop, ~5s)
-        try:
-            data = fetch_json(COINBASE_SPOT)
-            price = float(data["data"]["amount"])
-            _state["spot"] = price
-            _state["spot_ts"] = now
+def poll_series(cfg, now):
+    """One tick of tracking for one 15-minute market (BTC or ETH).
+
+    Same code for both series: spot sample, window (throttled markets
+    fetch — every 30s steady-state, every tick in the last minute before
+    close so rollovers are caught), target, v1 signal logged once per
+    minute (never in the last 3 minutes), live book, key levels.
+    A failure in any one step must never kill the poll thread.
+    """
+    K = cfg["keys"]
+    S = _state
+    # --- spot sample (every loop, ~5s)
+    try:
+        data = fetch_json(cfg["spot_url"])
+        price = float(data["data"]["amount"])
+        S[K["spot"]] = price
+        S[K["spot_ts"]] = now
+        conn = db()
+        conn.execute(
+            f"INSERT OR IGNORE INTO {cfg['spot_table']} (ts, price) VALUES (?, ?)",
+            (now, price),
+        )
+        conn.execute(f"DELETE FROM {cfg['spot_table']} WHERE ts < ?", (now - 86400,))
+        conn.commit()
+        conn.close()
+    except Exception as exc:  # noqa: BLE001
+        S["errors"].append(f"{cfg['name']} spot {exc}")
+
+    # --- window (throttled fetch; the window can only change at its close)
+    stored = S[K["window"]]
+    need = (
+        stored is None
+        or now >= stored["close_ts"] - 60
+        or now - (S.get(K["markets_ts"]) or 0) >= 30
+    )
+    win = stored
+    if need:
+        fetched = current_window(cfg["markets_url"], cfg["window_secs"], cfg["name"])
+        S[K["markets_ts"]] = now
+        if fetched:
+            win = fetched
+    if win:
+        prev = stored
+        if not prev or prev["ticker"] != win["ticker"]:
+            # window rolled: settle the old one, start the new one
+            if prev:
+                try:
+                    settle_window(prev["ticker"], cfg["spot_table"])
+                except Exception as exc:  # noqa: BLE001
+                    # A settle failure must never kill the poll thread
+                    # (an uncaught settle error froze the API on
+                    # 2026-11-16). The window stays unsettled; the
+                    # error is visible in /health.
+                    S["errors"].append(f"settle {exc}")
+            S[K["window"]] = win
+            S[K["target"]] = None
+            S[K["target_provisional"]] = False
+            # target = 60s average before the window opened
+            avg, n = avg_spot(win["open_ts"] - 60, win["open_ts"], cfg["spot_table"])
+            if avg is not None and n >= 5:
+                target, prov = avg, False
+            else:
+                # started mid-window: provisional from earliest samples
+                early, n2 = avg_spot(
+                    win["open_ts"], win["open_ts"] + 120, cfg["spot_table"]
+                )
+                target, prov = early, True
+            if target is None and S[K["spot"]]:
+                # restarted after minute 2: no pre-open or early samples
+                # exist, so anchor provisionally to the live spot rather
+                # than leaving the whole window targetless.
+                target, prov = S[K["spot"]], True
+            S[K["target"]] = target
+            S[K["target_provisional"]] = prov
             conn = db()
             conn.execute(
-                "INSERT OR IGNORE INTO spot_samples (ts, price) VALUES (?, ?)",
-                (now, price),
+                "INSERT OR IGNORE INTO windows "
+                "(ticker, open_ts, close_ts, target, target_provisional) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (win["ticker"], win["open_ts"], win["close_ts"],
+                 target, 1 if prov else 0),
             )
-            conn.execute("DELETE FROM spot_samples WHERE ts < ?", (now - 86400,))
             conn.commit()
             conn.close()
-        except Exception as exc:  # noqa: BLE001
-            _state["errors"].append(f"coinbase {exc}")
+        S[K["sigma"]] = sigma_1m(now, cfg["spot_table"])
 
-        # --- window (every loop; Kalshi call is cheap, rate limit is generous)
-        win = current_window()
-        if win:
-            prev = _state["window"]
-            if not prev or prev["ticker"] != win["ticker"]:
-                # window rolled: settle the old one, start the new one
-                if prev:
-                    try:
-                        settle_window(prev["ticker"])
-                    except Exception as exc:  # noqa: BLE001
-                        # A settle failure must never kill the poll thread
-                        # (an uncaught settle error froze the API on
-                        # 2026-11-16). The window stays unsettled; the
-                        # error is visible in /health.
-                        _state["errors"].append(f"settle {exc}")
-                _state["window"] = win
-                _state["target"] = None
-                _state["target_provisional"] = False
-                # target = 60s average before the window opened
-                avg, n = avg_spot(win["open_ts"] - 60, win["open_ts"])
-                if avg is not None and n >= 5:
-                    target, prov = avg, False
-                else:
-                    # started mid-window: provisional from earliest samples
-                    early, n2 = avg_spot(win["open_ts"], win["open_ts"] + 120)
-                    target, prov = early, True
-                if target is None and _state["spot"]:
-                    # restarted after minute 2: no pre-open or early samples
-                    # exist, so anchor provisionally to the live spot rather
-                    # than leaving the whole window targetless.
-                    target, prov = _state["spot"], True
-                _state["target"] = target
-                _state["target_provisional"] = prov
+        # --- v1 signal, logged once per minute (never in the last 3 min)
+        minute = (now - win["open_ts"]) / 60.0
+        last_minute = cfg["window_secs"] / 60.0 - 3
+        if minute <= last_minute and S[K["spot"]] and S[K["target"]]:
+            direction, conf, _, _ = direction_and_confidence(
+                S[K["spot"]], S[K["target"]], S[K["sigma"]]
+            )
+            action = "ENTER" if conf and conf >= 60 else "HOLD"
+            reason = (
+                f"spot {'above' if direction == 'UP' else 'below'} target "
+                f"by ${abs(S[K['spot']] - S[K['target']]):.2f}"
+                + (" — confidence below 60, do not chase" if action == "HOLD" else "")
+            )
+            # note proximity to the nearest key level in the reason
+            lv = S.get(K["levels"]) or {}
+            near = cfg["round_step"] // 10
+            if direction == "UP" and lv.get("nearest_resistance_usd"):
+                gap = lv["nearest_resistance_usd"] - S[K["spot"]]
+                if 0 <= gap <= near:
+                    reason += (
+                        f" — ${gap:.0f} below resistance "
+                        f"${lv['nearest_resistance_usd']:,.0f}"
+                    )
+            elif direction == "DOWN" and lv.get("nearest_support_usd"):
+                gap = S[K["spot"]] - lv["nearest_support_usd"]
+                if 0 <= gap <= near:
+                    reason += (
+                        f" — ${gap:.0f} above support "
+                        f"${lv['nearest_support_usd']:,.0f}"
+                    )
+            last = S[K["last_signal"]]
+            if not last or last["window"] != win["ticker"] or int(last["minute"]) != int(minute) or last["direction"] != direction:
                 conn = db()
                 conn.execute(
-                    "INSERT OR IGNORE INTO windows "
-                    "(ticker, open_ts, close_ts, target, target_provisional) "
-                    "VALUES (?, ?, ?, ?, ?)",
-                    (win["ticker"], win["open_ts"], win["close_ts"],
-                     target, 1 if prov else 0),
+                    "INSERT INTO signals (window, ts, minute, direction, "
+                    "confidence, action, reason) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (win["ticker"], now, round(minute, 1), direction,
+                     conf, action, reason),
                 )
                 conn.commit()
                 conn.close()
-            _state["sigma_1m"] = sigma_1m(now)
+                S[K["last_signal"]] = {
+                    "window": win["ticker"], "minute": minute,
+                    "direction": direction, "confidence": conf,
+                    "action": action, "reason": reason, "ts": now,
+                }
+        # --- live Kalshi book (every ~10s, public orderbook_fp)
+        if now - (S.get(K["book_ts"]) or 0) >= 10:
+            book = fetch_book(win["ticker"])
+            if book:
+                S[K["book"]] = book
+                S[K["book_ts"]] = now
+        # --- key levels (every ~60s; needs history to mean anything)
+        if now - (S.get(K["levels_ts"]) or 0) >= 60:
+            S[K["levels"]] = compute_levels(
+                now, S[K["spot"]], cfg["spot_table"],
+                cfg["prominence"], cfg["cluster"], cfg["round_step"],
+            )
+            S[K["levels_ts"]] = now
 
-            # --- v1 signal, logged once per minute (never after minute 12)
-            minute = (now - win["open_ts"]) / 60.0
-            if minute <= 12 and _state["spot"] and _state["target"]:
-                direction, conf, _, _ = direction_and_confidence(
-                    _state["spot"], _state["target"], _state["sigma_1m"]
-                )
-                action = "ENTER" if conf and conf >= 60 else "HOLD"
-                reason = (
-                    f"spot {'above' if direction == 'UP' else 'below'} target "
-                    f"by ${abs(_state['spot'] - _state['target']):.2f}"
-                    + (" — confidence below 60, do not chase" if action == "HOLD" else "")
-                )
-                # note proximity to the nearest key level in the reason
-                lv = _state.get("levels") or {}
-                if direction == "UP" and lv.get("nearest_resistance_usd"):
-                    gap = lv["nearest_resistance_usd"] - _state["spot"]
-                    if 0 <= gap <= 50:
-                        reason += (
-                            f" — ${gap:.0f} below resistance "
-                            f"${lv['nearest_resistance_usd']:,.0f}"
-                        )
-                elif direction == "DOWN" and lv.get("nearest_support_usd"):
-                    gap = _state["spot"] - lv["nearest_support_usd"]
-                    if 0 <= gap <= 50:
-                        reason += (
-                            f" — ${gap:.0f} above support "
-                            f"${lv['nearest_support_usd']:,.0f}"
-                        )
-                last = _state["last_signal"]
-                if not last or last["window"] != win["ticker"] or int(last["minute"]) != int(minute) or last["direction"] != direction:
-                    conn = db()
-                    conn.execute(
-                        "INSERT INTO signals (window, ts, minute, direction, "
-                        "confidence, action, reason) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (win["ticker"], now, round(minute, 1), direction,
-                         conf, action, reason),
-                    )
-                    conn.commit()
-                    conn.close()
-                    _state["last_signal"] = {
-                        "window": win["ticker"], "minute": minute,
-                        "direction": direction, "confidence": conf,
-                        "action": action, "reason": reason, "ts": now,
-                    }
-            # --- live Kalshi book (every ~10s, public orderbook_fp)
-            if now - (_state.get("book_ts") or 0) >= 10:
-                book = fetch_book(win["ticker"])
-                if book:
-                    _state["book"] = book
-                    _state["book_ts"] = now
-            # --- key levels (every ~60s; needs history to mean anything)
-            if now - (_state.get("levels_ts") or 0) >= 60:
-                _state["levels"] = compute_levels(now)
-                _state["levels_ts"] = now
+
+def poll_forever():
+    while True:
+        now = time.time()
+        for cfg in (BTC_CFG, ETH_CFG):
+            try:
+                poll_series(cfg, now)
+            except Exception as exc:  # noqa: BLE001 - backstop; poll_series
+                # already guards each step, so reaching here is unexpected.
+                _state["errors"].append(f"{cfg['name']} poll {exc}")
         # --- gold (slow: spot every ~30s, market every ~60s, book ~60s)
         # Gold is a daily market; it does not need 5-second polling, and
         # gentle polling respects the undocumented keyless rate limit.
@@ -589,6 +678,14 @@ def health():
         "spot_age_seconds": (
             round(time.time() - _state["spot_ts"]) if _state["spot_ts"] else None
         ),
+        "eth_spot_age_seconds": (
+            round(time.time() - _state["eth_spot_ts"])
+            if _state.get("eth_spot_ts")
+            else None
+        ),
+        "eth_window_ticker": (
+            _state["eth_window"]["ticker"] if _state.get("eth_window") else None
+        ),
         "poll_age_seconds": (
             round(time.time() - _state["poll_last_ok"])
             if _state.get("poll_last_ok")
@@ -606,20 +703,22 @@ def health():
     }
 
 
-def live_btc_payload():
-    win = _state["window"]
-    spot = _state["spot"]
-    target = _state["target"]
-    sig = _state["sigma_1m"]
+def live_series_payload(cfg):
+    """The /live payload for one 15-minute market (BTC or ETH)."""
+    K = cfg["keys"]
+    win = _state[K["window"]]
+    spot = _state[K["spot"]]
+    target = _state[K["target"]]
+    sig = _state[K["sigma"]]
     now = time.time()
     direction, conf, _, _ = direction_and_confidence(spot, target, sig)
     return {
         "as_of": datetime.fromtimestamp(now, tz=timezone.utc).isoformat(),
         "market": (
             {
-                "series": "KXBTC15M",
+                "series": cfg["series_ticker"],
                 "ticker": win["ticker"],
-                "question": "BTC price up in next 15 mins?",
+                "question": cfg["question"],
                 "closes_in_seconds": max(0, round(win["close_ts"] - now)),
                 "minute_of_15": round((now - win["open_ts"]) / 60.0, 1),
             }
@@ -628,7 +727,7 @@ def live_btc_payload():
         ),
         "spot_usd": spot,
         "target_usd": target,
-        "target_provisional": _state["target_provisional"],
+        "target_provisional": _state[K["target_provisional"]],
         "target_note": "60-second spot average in the minute before the window opened (the market's strike definition). Provisional when the service started mid-window.",
         "spot_vs_target_usd": (
             round(spot - target, 2) if spot and target else None
@@ -638,7 +737,7 @@ def live_btc_payload():
         ),
         "above_target": (spot >= target) if spot and target else None,
         "sigma_1m_usd": round(sig, 2) if sig else None,
-        "levels": _state.get("levels"),
+        "levels": _state.get(K["levels"]),
         "signal": (
             {
                 "direction": direction,
@@ -651,21 +750,29 @@ def live_btc_payload():
         "kalshi_book": (
             {
                 "status": "LIVE",
-                "yes_bid_cents": _state["book"]["yes_bid_cents"],
-                "yes_ask_cents": _state["book"]["yes_ask_cents"],
-                "no_bid_cents": _state["book"]["no_bid_cents"],
-                "no_ask_cents": _state["book"]["no_ask_cents"],
+                "yes_bid_cents": _state[K["book"]]["yes_bid_cents"],
+                "yes_ask_cents": _state[K["book"]]["yes_ask_cents"],
+                "no_bid_cents": _state[K["book"]]["no_bid_cents"],
+                "no_ask_cents": _state[K["book"]]["no_ask_cents"],
                 "age_seconds": (
-                    round(now - _state["book_ts"]) if _state.get("book_ts") else None
+                    round(now - _state[K["book_ts"]]) if _state.get(K["book_ts"]) else None
                 ),
             }
-            if _state.get("book")
+            if _state.get(K["book"])
             else {
                 "status": "LIVE DATA UNAVAILABLE",
                 "note": "Kalshi's public orderbook returned no live bids right now.",
             }
         ),
     }
+
+
+def live_btc_payload():
+    return live_series_payload(BTC_CFG)
+
+
+def live_eth_payload():
+    return live_series_payload(ETH_CFG)
 
 
 @app.get("/live")
@@ -728,17 +835,28 @@ def live_gold_payload():
 
 @app.get("/live/all")
 def live_all():
-    return {"btc_15m": live_btc_payload(), "gold": live_gold_payload()}
+    return {
+        "btc_15m": live_btc_payload(),
+        "eth_15m": live_eth_payload(),
+        "gold": live_gold_payload(),
+    }
 
 
 @app.get("/signals")
-def signals(limit: int = 20):
+def signals(limit: int = 20, series: str = ""):
     conn = db()
-    rows = conn.execute(
-        "SELECT window, ts, minute, direction, confidence, action, reason "
-        "FROM signals ORDER BY id DESC LIMIT ?",
-        (limit,),
-    ).fetchall()
+    if series:
+        rows = conn.execute(
+            "SELECT window, ts, minute, direction, confidence, action, reason "
+            "FROM signals WHERE window LIKE ? ORDER BY id DESC LIMIT ?",
+            (series + "%", limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT window, ts, minute, direction, confidence, action, reason "
+            "FROM signals ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
     conn.close()
     return [
         {
@@ -755,14 +873,19 @@ def signals(limit: int = 20):
 
 
 @app.get("/track-record")
-def track_record():
-    """Win rate counted from settled windows: last signal vs resolution."""
+def track_record(series: str = "KXBTC15M"):
+    """Win rate counted from settled windows: last signal vs resolution.
+
+    Defaults to the BTC 15-minute series; pass ?series=KXETH15M for ETH.
+    Each series has its own record — validation never transfers across.
+    """
     conn = db()
     rows = conn.execute(
         "SELECT w.ticker, w.resolution, s.direction FROM windows w "
         "JOIN signals s ON s.window = w.ticker "
-        "WHERE w.resolution IS NOT NULL "
-        "AND s.id = (SELECT MAX(id) FROM signals WHERE window = w.ticker)"
+        "WHERE w.resolution IS NOT NULL AND w.ticker LIKE ? "
+        "AND s.id = (SELECT MAX(id) FROM signals WHERE window = w.ticker)",
+        (series + "%",),
     ).fetchall()
     conn.close()
     settled = len(rows)
@@ -773,6 +896,7 @@ def track_record():
         or (r["direction"] == "DOWN" and r["resolution"] == "NO")
     )
     return {
+        "series": series,
         "strategy": "momentum-v1",
         "status": "UNVALIDATED — needs 100+ paper trades + out-of-sample validation",
         "windows_settled": settled,
@@ -783,13 +907,21 @@ def track_record():
 
 
 @app.get("/windows")
-def windows(limit: int = 10):
+def windows(limit: int = 10, series: str = ""):
     conn = db()
-    rows = conn.execute(
-        "SELECT ticker, open_ts, close_ts, target, target_provisional, "
-        "resolution FROM windows ORDER BY close_ts DESC LIMIT ?",
-        (limit,),
-    ).fetchall()
+    if series:
+        rows = conn.execute(
+            "SELECT ticker, open_ts, close_ts, target, target_provisional, "
+            "resolution FROM windows WHERE ticker LIKE ? "
+            "ORDER BY close_ts DESC LIMIT ?",
+            (series + "%", limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT ticker, open_ts, close_ts, target, target_provisional, "
+            "resolution FROM windows ORDER BY close_ts DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
     conn.close()
     return [
         {
