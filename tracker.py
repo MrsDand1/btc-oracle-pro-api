@@ -38,6 +38,7 @@ import urllib.request
 from datetime import datetime, timezone
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 DB_PATH = "oracle.db"
@@ -49,6 +50,15 @@ KALSHI_ORDERBOOK = "https://api.elections.kalshi.com/trade-api/v2/markets"
 COINBASE_SPOT = "https://api.coinbase.com/v2/prices/BTC-USD/spot"
 
 app = FastAPI(title="BTC Oracle Pro — public tracking API")
+# Public read-only API: allow any web page to read it (GET only) so the
+# public viewer version of the dashboard can fetch /live straight from
+# the browser. Nothing here writes anything, so this opens no door.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
 
 
 # ---------------------------------------------------------------- db
