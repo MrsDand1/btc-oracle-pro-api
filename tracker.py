@@ -257,11 +257,26 @@ def fetch_book(ticker):
             return None
         yes_bid = max(float(p) for p, _ in yes)
         no_bid = max(float(p) for p, _ in no)
+
+        def top_ladder(side):
+            rows = sorted(
+                ((float(p), float(s)) for p, s in side), reverse=True
+            )[:6]
+            return [
+                {
+                    "price_cents": round(p * 100, 1),
+                    "size": int(s) if s == int(s) else s,
+                }
+                for p, s in rows
+            ]
+
         return {
             "yes_bid_cents": round(yes_bid * 100, 1),
             "yes_ask_cents": round((1 - no_bid) * 100, 1),
             "no_bid_cents": round(no_bid * 100, 1),
             "no_ask_cents": round((1 - yes_bid) * 100, 1),
+            "yes_ladder": top_ladder(yes),
+            "no_ladder": top_ladder(no),
         }
     except Exception:
         return None
@@ -754,6 +769,8 @@ def live_series_payload(cfg):
                 "yes_ask_cents": _state[K["book"]]["yes_ask_cents"],
                 "no_bid_cents": _state[K["book"]]["no_bid_cents"],
                 "no_ask_cents": _state[K["book"]]["no_ask_cents"],
+                "yes_ladder": _state[K["book"]].get("yes_ladder"),
+                "no_ladder": _state[K["book"]].get("no_ladder"),
                 "age_seconds": (
                     round(now - _state[K["book_ts"]]) if _state.get(K["book_ts"]) else None
                 ),
@@ -819,6 +836,8 @@ def live_gold_payload():
                 "yes_ask_cents": book["yes_ask_cents"],
                 "no_bid_cents": book["no_bid_cents"],
                 "no_ask_cents": book["no_ask_cents"],
+                "yes_ladder": book.get("yes_ladder"),
+                "no_ladder": book.get("no_ladder"),
                 "age_seconds": (
                     round(now - _state["gold_book_ts"])
                     if _state.get("gold_book_ts")
