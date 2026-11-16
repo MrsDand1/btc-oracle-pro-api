@@ -32,6 +32,13 @@ holds keys, never touches an account.
   Nov 16, 2026 — the earlier "orderbooks empty" finding read the
   legacy `yes`/`no` keys Kalshi removed on 2026-03-12. Volume and the
   live trade tape are still not available without a key (WebSocket).
+- **Key levels:** support/resistance computed from the last 6 hours
+  of spot samples (swing highs/lows clustered within $25, plus round
+  $500 psychological levels), served in `/live` as `levels` with
+  touches and lookback minutes. Returns null until 30 minutes of
+  history exists — levels need data, and the free tier wipes history
+  on restart. Signals note when spot is within $50 of the nearest
+  level in their reason.
 - **Signals:** v1 momentum logic, UNVALIDATED. Nothing here is a
   validated strategy until it passes 100+ paper trades plus
   out-of-sample validation.

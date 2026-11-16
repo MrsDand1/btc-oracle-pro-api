@@ -103,6 +103,8 @@ _state = {
     "target_provisional": False,
     "sigma_1m": None,
     "last_signal": None,
+    "levels": None,          # support/resistance from recent spot history
+    "levels_ts": None,
     "book": None,            # {yes_bid_cents, yes_ask_cents, no_bid_cents, no_ask_cents}
     "book_ts": None,
     "started_at": time.time(),
@@ -179,6 +181,99 @@ def fetch_book(ticker):
         }
     except Exception:
         return None
+
+
+def compute_levels(now):
+    """Support/resistance from recent spot history (swing highs/lows).
+
+    Builds 1-minute bars from spot_samples over the last 6 hours. A
+    swing high is a 1-min high at least $5 above its 3 neighbours each
+    side (the prominence bar keeps flat tops/bottoms from counting
+    twice); swings within $25 cluster into one level, counted by
+    touches. Round $500 levels are added as psychological levels
+    (touches 0, kind "round"). Returns None when there is under 30
+    minutes of history — levels need data to mean anything, and the
+    free tier wipes history on restart, so early levels are thin by
+    design.
+    """
+    try:
+        conn = db()
+        rows = conn.execute(
+            "SELECT ts, price FROM spot_samples WHERE ts >= ? ORDER BY ts",
+            (now - 6 * 3600,),
+        ).fetchall()
+        conn.close()
+    except Exception:
+        return None
+    if not rows or (rows[-1]["ts"] - rows[0]["ts"]) < 1800:
+        return None
+    bars = {}
+    for r in rows:
+        m = int(r["ts"] // 60) * 60
+        b = bars.setdefault(m, [r["price"], r["price"]])
+        b[0] = max(b[0], r["price"])
+        b[1] = min(b[1], r["price"])
+    minutes = sorted(bars)
+    highs = [bars[m][0] for m in minutes]
+    lows = [bars[m][1] for m in minutes]
+
+    def swings(values, is_high):
+        out = []
+        for i in range(3, len(values) - 3):
+            v = values[i]
+            neigh = values[i - 3:i] + values[i + 1:i + 4]
+            if is_high and v - max(neigh) >= 5:
+                out.append((minutes[i], v))
+            if (not is_high) and min(neigh) - v >= 5:
+                out.append((minutes[i], v))
+        return out
+
+    def cluster(points, is_high):
+        levels = []
+        for ts, price in sorted(points, key=lambda p: p[1], reverse=is_high):
+            hit = None
+            for lv in levels:
+                if abs(lv["price_usd"] - price) <= 25:
+                    hit = lv
+                    break
+            if hit:
+                hit["touches"] += 1
+                hit["price_usd"] = (
+                    max(hit["price_usd"], price) if is_high
+                    else min(hit["price_usd"], price)
+                )
+                hit["last_tested"] = max(hit["last_tested"], ts)
+            else:
+                levels.append({
+                    "price_usd": round(price, 2), "touches": 1,
+                    "last_tested": ts, "kind": "swing",
+                })
+        return levels
+
+    spot = _state["spot"]
+    res = [lv for lv in cluster(swings(highs, True), True)
+           if spot is None or lv["price_usd"] > spot]
+    sup = [lv for lv in cluster(swings(lows, False), False)
+           if spot is None or lv["price_usd"] < spot]
+    res.sort(key=lambda lv: lv["price_usd"])
+    sup.sort(key=lambda lv: lv["price_usd"], reverse=True)
+    if spot:
+        up = (int(spot // 500) + 1) * 500
+        dn = int(spot // 500) * 500
+        res.append({"price_usd": float(up), "touches": 0,
+                    "last_tested": None, "kind": "round"})
+        sup.append({"price_usd": float(dn), "touches": 0,
+                    "last_tested": None, "kind": "round"})
+        res.sort(key=lambda lv: lv["price_usd"])
+        sup.sort(key=lambda lv: lv["price_usd"], reverse=True)
+    lookback = round((rows[-1]["ts"] - rows[0]["ts"]) / 60)
+    return {
+        "lookback_minutes": lookback,
+        "resistance": res[:3],
+        "support": sup[:3],
+        "nearest_resistance_usd": res[0]["price_usd"] if res else None,
+        "nearest_support_usd": sup[0]["price_usd"] if sup else None,
+    }
 
 
 def sigma_1m(now):
@@ -314,6 +409,22 @@ def poll_forever():
                     f"by ${abs(_state['spot'] - _state['target']):.2f}"
                     + (" — confidence below 60, do not chase" if action == "HOLD" else "")
                 )
+                # note proximity to the nearest key level in the reason
+                lv = _state.get("levels") or {}
+                if direction == "UP" and lv.get("nearest_resistance_usd"):
+                    gap = lv["nearest_resistance_usd"] - _state["spot"]
+                    if 0 <= gap <= 50:
+                        reason += (
+                            f" — ${gap:.0f} below resistance "
+                            f"${lv['nearest_resistance_usd']:,.0f}"
+                        )
+                elif direction == "DOWN" and lv.get("nearest_support_usd"):
+                    gap = _state["spot"] - lv["nearest_support_usd"]
+                    if 0 <= gap <= 50:
+                        reason += (
+                            f" — ${gap:.0f} above support "
+                            f"${lv['nearest_support_usd']:,.0f}"
+                        )
                 last = _state["last_signal"]
                 if not last or last["window"] != win["ticker"] or int(last["minute"]) != int(minute) or last["direction"] != direction:
                     conn = db()
@@ -336,6 +447,10 @@ def poll_forever():
                 if book:
                     _state["book"] = book
                     _state["book_ts"] = now
+            # --- key levels (every ~60s; needs history to mean anything)
+            if now - (_state.get("levels_ts") or 0) >= 60:
+                _state["levels"] = compute_levels(now)
+                _state["levels_ts"] = now
         _state["errors"] = _state["errors"][-10:]
         _state["poll_last_ok"] = time.time()
         time.sleep(5)
@@ -426,6 +541,7 @@ def live():
         ),
         "above_target": (spot >= target) if spot and target else None,
         "sigma_1m_usd": round(sig, 2) if sig else None,
+        "levels": _state.get("levels"),
         "signal": (
             {
                 "direction": direction,
