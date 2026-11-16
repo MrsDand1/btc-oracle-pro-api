@@ -9,18 +9,36 @@ holds keys, never touches an account.
 - `GET /live` — current KXBTC15M window (ticker, countdown, minute of 15),
   live BTC spot price, computed target, spot vs target ($ and %),
   1-minute sigma, current signal, and an explicit Kalshi-book status.
-- `GET /live/all` — the 15-minute BTC feed plus the gold feed in one
-  call (`btc_15m` + `gold`), for the Pulse viewer tabs.
-- `GET /signals` — recent signals (direction, confidence, action, reason).
+- `GET /live/all` — the 15-minute BTC feed plus the ETH 15-minute
+  feed plus the gold feed in one call (`btc_15m` + `eth_15m` +
+  `gold`), for the Pulse viewer tabs.
+- `GET /signals` — recent signals (direction, confidence, action,
+  reason). Pass `?series=KXETH15M` for ETH only; no parameter returns
+  both series.
 - `GET /track-record` — win rate counted from settled windows: each
-  window's last signal vs how it actually resolved.
+  window's last signal vs how it actually resolved. Defaults to the
+  BTC 15-minute series; pass `?series=KXETH15M` for ETH. Each series
+  keeps its own record — validation never transfers across series.
 - `GET /windows` — recent windows with targets and resolutions.
 - `GET /health` — uptime, spot freshness, recent errors.
 
 ## How the numbers are made (honest version)
 
-- **Spot:** Coinbase public spot price, polled every 5 seconds.
-- **Window:** Kalshi public API, polled every 30 seconds.
+- **Spot:** Coinbase public spot price, polled every 5 seconds
+  (BTC-USD and ETH-USD, each into its own history table).
+- **Windows:** Kalshi public API — the open-market list is fetched
+  every 30 seconds in steady state and every tick in the last minute
+  before a window closes, so rollovers are caught without hammering
+  the endpoint.
+- **ETH 15-minute (KXETH15M):** the same tracker as BTC, run a second
+  time on the ETH series — same 15-minute shape, same target rule
+  (60-second pre-open average), same v1 momentum signal
+  (UNVALIDATED, its own record), same live book and key levels, but
+  scaled to ETH: swing prominence $2, cluster $10, round levels every
+  $100, level-proximity notes within $10. Verified live Nov 16, 2026
+  (KXETH15M open market + Coinbase ETH spot). Signals for both series
+  land in the same `/signals` feed, so the alert hook picks up ETH
+  ENTER signals automatically.
 - **Target:** the 60-second average of spot in the minute before the
   window opens — that is how the market's strike is defined. If the
   service starts mid-window, the target is marked `provisional`.
