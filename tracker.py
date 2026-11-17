@@ -70,6 +70,12 @@ Data reality (verified Nov 16, 2026; corrected the same day):
   no advice. The unfiltered /markets list cannot be ranked in one call:
   it is flooded with 40,000+ zero-volume combo markets, so the ranking
   covers the named series pool in the response, not the whole exchange.
+- Durable history (added 2026-11-17): the SQLite history (windows,
+  signals, spot samples) lives in a Turso free database when
+  TURSO_DATABASE_URL + TURSO_AUTH_TOKEN are set, and in the local
+  oracle.db file when they are not. Render free Postgres was
+  deliberately not used — free Postgres databases are deleted after
+  ~90 days. See README.md for the env vars and the row budget.
 
 Run:  uvicorn tracker:app --host 0.0.0.0 --port 8000
 Endpoints: /live, /live/all, /signals, /track-record, /entries, /windows, /top-markets, /health
@@ -77,6 +83,7 @@ Endpoints: /live, /live/all, /signals, /track-record, /entries, /windows, /top-m
 
 import json
 import math
+import os
 import sqlite3
 import threading
 import time
@@ -88,6 +95,37 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 DB_PATH = "oracle.db"
+# Durable history (added 2026-11-17): by default the tracker still uses
+# the local SQLite file above, exactly as before. When
+# TURSO_DATABASE_URL is set, history lives in a Turso (libSQL) database
+# instead, so a free-tier restart no longer wipes the track record,
+# entry log, spot samples and Key Levels history. TURSO_AUTH_TOKEN must
+# be set with it; a URL without a token fails loudly at import — it must
+# never silently fall back to the local file, or a restart would
+# silently wipe history again. Render free Postgres was deliberately
+# NOT used: free Postgres databases are deleted after ~90 days.
+# The env vars are set in Render (dashboard -> service -> Environment);
+# their values come from the Turso dashboard, never from this repo.
+TURSO_DATABASE_URL = os.environ.get("TURSO_DATABASE_URL", "")
+TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "")
+if TURSO_DATABASE_URL and not TURSO_AUTH_TOKEN:
+    raise RuntimeError(
+        "TURSO_DATABASE_URL is set but TURSO_AUTH_TOKEN is missing; "
+        "refusing to start rather than silently falling back to local SQLite"
+    )
+_USE_TURSO = bool(TURSO_DATABASE_URL)
+
+# Key Levels refresh cadence (added 2026-11-17): levels are 6-hour
+# support/resistance — a 10-minute refresh is more than fresh enough,
+# and the old 60s cadence read ~4,320 spot rows per series per minute,
+# ~1.5B rows/month across 8 series, 3x Turso's free 500M rows-read cap.
+LEVELS_REFRESH_SECS = 600
+
+# Prune bookkeeping (added 2026-11-17): per-tick DELETEs of 24h-old
+# samples cost one HTTP round trip per series per tick on Turso. Pruning
+# once an hour per table deletes the same rows — no query reads samples
+# older than 6 hours — and drops ~108 DELETEs/minute to 8/hour.
+_last_prune = {}
 KALSHI_MARKETS = (
     "https://api.elections.kalshi.com/trade-api/v2/markets"
     "?series_ticker=KXBTC15M&limit=5&status=open"
@@ -889,6 +927,28 @@ def settle_window(ticker, table="spot_samples"):
         "UPDATE windows SET resolution = ?, resolved_at = ? WHERE ticker = ?",
         (resolution, time.time(), ticker),
     )
+    # Keep the track-record summary in step, in the SAME commit as the
+    # resolution write (added 2026-11-17): /track-record reads the
+    # summary, not the windows table, so a settle that resolved the
+    # window but missed the summary would undercount forever. A window
+    # with no signals is not counted at all — same as the old JOIN,
+    # which found no signal row for it.
+    last = conn.execute(
+        "SELECT direction FROM signals WHERE window = ? "
+        "ORDER BY id DESC LIMIT 1",
+        (ticker,),
+    ).fetchone()
+    if last is not None:
+        correct = 1 if (
+            (last["direction"] == "UP" and resolution == "YES")
+            or (last["direction"] == "DOWN" and resolution == "NO")
+        ) else 0
+        conn.execute(
+            "INSERT INTO track_record_summary (series, settled, correct) "
+            "VALUES (?, 1, ?) ON CONFLICT(series) DO UPDATE SET "
+            "settled = settled + 1, correct = correct + excluded.correct",
+            (ticker.split("-")[0], correct),
+        )
     conn.commit()
     conn.close()
 
@@ -931,7 +991,15 @@ def poll_series(cfg, now):
             f"INSERT OR IGNORE INTO {cfg['spot_table']} (ts, price) VALUES (?, ?)",
             (now, price),
         )
-        conn.execute(f"DELETE FROM {cfg['spot_table']} WHERE ts < ?", (now - 86400,))
+        # Prune 24h-old samples at most once an hour per table (see
+        # _last_prune): the same rows are deleted, but ~108 DELETE
+        # round trips a minute become 8 an hour. No query reads samples
+        # older than 6 hours, so an hour-late prune changes nothing.
+        if now - _last_prune.get(cfg["spot_table"], 0) >= 3600:
+            conn.execute(
+                f"DELETE FROM {cfg['spot_table']} WHERE ts < ?", (now - 86400,)
+            )
+            _last_prune[cfg["spot_table"]] = now
         conn.commit()
         conn.close()
 
@@ -1054,8 +1122,8 @@ def poll_series(cfg, now):
             if book:
                 S[K["book"]] = book
                 S[K["book_ts"]] = now
-        # --- key levels (every ~60s; needs history to mean anything)
-        if now - (S.get(K["levels_ts"]) or 0) >= 60:
+        # --- key levels (every LEVELS_REFRESH_SECS; needs history to mean anything)
+        if now - (S.get(K["levels_ts"]) or 0) >= LEVELS_REFRESH_SECS:
             S[K["levels"]] = compute_levels(
                 now, S[K["spot"]], cfg["spot_table"],
                 cfg["prominence"], cfg["cluster"], cfg["round_step"],
@@ -1616,21 +1684,29 @@ def track_record(series: str = "KXBTC15M"):
     Each series has its own record — validation never transfers across.
     """
     conn = db()
-    rows = conn.execute(
-        "SELECT w.ticker, w.resolution, s.direction FROM windows w "
-        "JOIN signals s ON s.window = w.ticker "
-        "WHERE w.resolution IS NOT NULL AND w.ticker LIKE ? "
-        "AND s.id = (SELECT MAX(id) FROM signals WHERE window = w.ticker)",
-        (series + "%",),
-    ).fetchall()
+    # Hot path reads the summary table (added 2026-11-17): one PK lookup,
+    # ~1 row, however much history exists. Counting from the windows
+    # table costs ~11 rows per settled window per call (~32k rows/call
+    # at 30 days of history, growing ~1k/call/day) — at once-a-minute
+    # polling that alone would break Turso's free 500M rows-read cap.
+    # settle_window keeps the summary in step; the boot backfill seeds
+    # it for a series with history but no row yet. If the row is missing
+    # for any other reason, count live once and store the result.
+    row = conn.execute(
+        "SELECT settled, correct FROM track_record_summary WHERE series = ?",
+        (series,),
+    ).fetchone()
+    if row is None:
+        settled, correct = _track_record_counts(conn, series)
+        conn.execute(
+            "INSERT OR IGNORE INTO track_record_summary (series, settled, "
+            "correct) VALUES (?, ?, ?)",
+            (series, settled, correct),
+        )
+        conn.commit()
+    else:
+        settled, correct = row["settled"], row["correct"]
     conn.close()
-    settled = len(rows)
-    correct = sum(
-        1
-        for r in rows
-        if (r["direction"] == "UP" and r["resolution"] == "YES")
-        or (r["direction"] == "DOWN" and r["resolution"] == "NO")
-    )
     return {
         "series": series,
         "strategy": "momentum-v1",
@@ -1657,11 +1733,15 @@ def entries(limit: int = 50, series: str = ""):
     limit = max(1, min(200, limit))
     conn = db()
     like = (series + "%",) if series else ("%",)
+    # CROSS JOIN (added 2026-11-17): forces the windows-first join order
+    # so the scan walks windows newest-first on idx_windows_close_ts and
+    # probes signals per window on idx_signals_window_action_id — ~6ms
+    # on a 30-day database vs ~2.4s for the planner's signals-first
+    # order. Same rows, same order, same response shape.
     rows = conn.execute(
         "SELECT w.ticker, w.open_ts, w.close_ts, w.resolution, s.direction, "
-        "s.confidence, s.minute, s.ts FROM windows w "
-        "JOIN signals s ON s.window = w.ticker "
-        "WHERE w.ticker LIKE ? AND s.action = 'ENTER' "
+        "s.confidence, s.minute, s.ts FROM windows w CROSS JOIN signals s "
+        "WHERE w.ticker LIKE ? AND s.window = w.ticker AND s.action = 'ENTER' "
         "AND s.id = (SELECT MIN(id) FROM signals "
         "WHERE window = w.ticker AND direction = s.direction "
         "AND action = 'ENTER') "
