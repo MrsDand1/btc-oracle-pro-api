@@ -9,9 +9,11 @@ holds keys, never touches an account.
 - `GET /live` — current KXBTC15M window (ticker, countdown, minute of 15),
   live BTC spot price, computed target, spot vs target ($ and %),
   1-minute sigma, current signal, and an explicit Kalshi-book status.
-- `GET /live/all` — the 15-minute BTC feed plus the ETH 15-minute
-  feed plus the gold feeds in one call (`btc_15m` + `eth_15m` +
-  `gold` + `gold_15m`), for the Pulse viewer tabs.
+- `GET /live/all` — the 15-minute BTC feed plus the ETH, gold, SOL,
+  XRP, DOGE, BNB and silver 15-minute feeds plus the daily gold feed
+  in one call (`btc_15m` + `eth_15m` + `gold` + `gold_15m` +
+  `sol_15m` + `xrp_15m` + `doge_15m` + `bnb_15m` + `silver_15m`),
+  for the Pulse viewer tabs.
 - `GET /signals` — recent signals (direction, confidence, action,
   reason). Pass `?series=KXETH15M` for ETH only; no parameter returns
   both series.
@@ -24,6 +26,9 @@ holds keys, never touches an account.
   eventual resolution/outcome (win / loss / pending). Pass
   `?series=KXETH15M` for ETH only; no parameter returns both series.
 - `GET /windows` — recent windows with targets and resolutions.
+- `GET /top-markets` — the most-traded Kalshi markets by public 24h
+  volume, ranked across the tracked liquid series, plus biggest
+  movers since the last refresh. Display only, no signal.
 - `GET /health` — uptime, spot freshness, recent errors.
 
 ## How the numbers are made (honest version)
@@ -55,9 +60,11 @@ holds keys, never touches an account.
   in `/live` as `kalshi_book` (YES/NO bid and ask in cents, plus the
   top-6 `yes_ladder`/`no_ladder` with sizes for the order-book panel).
   Corrected Nov 16, 2026 — the earlier "orderbooks empty" finding read the
-  legacy `yes`/`no` keys Kalshi removed on 2026-03-12. Volume, open
-  interest, and last trade are still not available without a key
-  (WebSocket) — the API never invents them.
+  legacy `yes`/`no` keys Kalshi removed on 2026-03-12. Volume and open
+  interest ARE in the public `/markets` response (`volume_24h_fp`,
+  `volume_fp`, `open_interest_fp` — corrected Nov 17, 2026); only the
+  live trade tape still needs a key (WebSocket) — the API never
+  invents it.
 - **1-hour tape (`/candles`):** the last 60 1-minute candles from
   Coinbase's public Exchange API (spot, not Kalshi — no key), cached
   ~45s; `?series=KXETH15M` for ETH. Feeds the 1-hour tape chart in
@@ -91,6 +98,46 @@ holds keys, never touches an account.
   `gold_15m` entry in `/live/all` carries `signal: null` with a note
   saying so. The daily KXGOLD feed is unchanged; the two gold series
   coexist.
+- **SOL / XRP / DOGE 15-minute (KXSOL15M, KXXRP15M, KXDOGE15M, added
+  Nov 17, 2026):** feed-only, tracked exactly like gold 15-minute —
+  live window, 60s pre-open target, 1-minute sigma, live book (polled
+  ~60s), key levels scaled to each coin (SOL ~$74: prominence $0.10,
+  cluster $0.50, round every $5; XRP ~$0.97: $0.002 / $0.01 / $0.10;
+  DOGE ~$0.059: $0.0002 / $0.001 / $0.005 — all verified live Nov 17,
+  2026). NO signal, NO track-record writes, NO ledger for any of them
+  — a signal needs its own strategy and validation run. Dollar figures
+  are rounded to decimals that fit the price scale (6 for sub-$1
+  coins) so sigma and spot-vs-target never read 0.0.
+- **BNB / silver 15-minute (KXBNB15M, KXSILVER15M, added Nov 17,
+  2026):** feed-only, tracked exactly like gold 15-minute — live
+  window, 60s pre-open target, 1-minute sigma, live book (polled
+  ~60s), key levels scaled to each market (BNB ~$592: $0.50 / $2.50 /
+  $25; silver ~$47: $0.02 / $0.10 / $1 — both verified live Nov 17,
+  2026). Spot feeds are free and public: Coinbase BNB-USD for BNB,
+  `api.gold-api.com/price/XAG` for silver (same feed family as the
+  gold XAU feed). NO signal, NO track-record writes, NO ledger for
+  either — a signal needs its own strategy and validation run.
+  NEAR, HYPE, ZEC, ADA, BCH and TON 15-minute markets exist on Kalshi
+  but are NOT tracked: their books are too thin (HYPE showed $0
+  volume, NEAR $659 in the owner's screenshots) and each new tab adds
+  validation debt. A market earns its own tab when its volume + a
+  validation run justify it; the rest stay visible on Top Markets.
+  The same earn-a-tab rule holds for WTI, Brent, nat gas, copper,
+  coffee, platinum, palladium, all FX pairs, S&P/Nasdaq/Dow and
+  Treasury yields, and for Coin Race / Crypto Comparison (relative
+  markets, no single spot price, cannot train the same way).
+- **Top Markets (`GET /top-markets`, added Nov 17, 2026):** the
+  most-traded Kalshi markets by public 24h volume (`volume_24h_fp`
+  in `/markets`, verified Nov 17, 2026), ranked across the tracked
+  liquid series (BTC/ETH/SOL/XRP/DOGE/BNB/gold/silver 15-minute,
+  gold + BTC daily, NFL/NBA/NCAAB/NHL games), plus biggest movers
+  since the last
+  refresh (~5 min). The unfiltered `/markets` list cannot be ranked in
+  one call: it is flooded with 40,000+ zero-volume combo markets, so
+  the board names its pool honestly. Movers exclude 15-minute windows
+  (their prices drift mechanically toward 0 or 1 as the window
+  closes) and are empty until two refreshes exist after a restart.
+  Display only — no signal, no advice.
 - **Signals:** v1 momentum logic, UNVALIDATED. Nothing here is a
   validated strategy until it passes 100+ paper trades plus
   out-of-sample validation.
