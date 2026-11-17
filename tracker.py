@@ -1,9 +1,13 @@
 """BTC Oracle Pro — public tracking API (paper only, never live trades).
 
-Tracks the live Kalshi 15-minute BTC and ETH windows and serves them as
-public JSON: current window, spot price, computed target, sigma, signals,
-and the win rate counted from settled signals. Also watches gold (live
-spot + the open KXGOLD market, no gold signal in v1).
+Tracks the live Kalshi 15-minute BTC, ETH and gold windows and serves them
+as public JSON: current window, spot price, computed target, sigma, signals,
+and the win rate counted from settled signals. Also watches the daily
+KXGOLD market (live spot + the open daily market, no gold signal in v1).
+Gold 15-minute (KXGOLD15M) is tracked like BTC/ETH — window, target,
+sigma, live book, key levels — but with NO signal, NO track-record
+writes and NO ledger: a gold signal needs its own strategy and
+validation run.
 
 Data reality (verified Nov 16, 2026; corrected the same day):
 - Kalshi's public REST API returns the live window (ticker, close time).
@@ -28,6 +32,10 @@ Data reality (verified Nov 16, 2026; corrected the same day):
 - Gold (v1): live spot from a public feed + the open KXGOLD market
   when one exists. No gold signal — the market's own YES price is the
   market's view.
+- Gold 15-minute (KXGOLD15M, added 2026-11-17): tracked like BTC/ETH
+  (window, target, sigma, book, levels) but with NO signal and NO
+  track-record writes. The daily KXGOLD feed is unchanged; the two
+  gold series coexist.
 
 Run:  uvicorn tracker:app --host 0.0.0.0 --port 8000
 Endpoints: /live, /live/all, /signals, /track-record, /windows, /health
@@ -58,6 +66,10 @@ KALSHI_ORDERBOOK = "https://api.elections.kalshi.com/trade-api/v2/markets"
 KALSHI_GOLD_MARKETS = (
     "https://api.elections.kalshi.com/trade-api/v2/markets"
     "?series_ticker=KXGOLD&limit=10&status=open"
+)
+KALSHI_GOLD15M_MARKETS = (
+    "https://api.elections.kalshi.com/trade-api/v2/markets"
+    "?series_ticker=KXGOLD15M&limit=5&status=open"
 )
 GOLD_SPOT = "https://api.gold-api.com/price/XAU"
 COINBASE_SPOT = "https://api.coinbase.com/v2/prices/BTC-USD/spot"
@@ -113,6 +125,32 @@ ETH_CFG = {
         "levels_ts": "eth_levels_ts", "book": "eth_book", "book_ts": "eth_book_ts",
     },
 }
+GOLD15_CFG = {
+    # 15-minute gold, added 2026-11-17: Kalshi runs KXGOLD15M alongside
+    # the daily KXGOLD series, and the daily feed alone left Pulse's
+    # gold tab empty while a 15-minute gold market was live. Same
+    # tracking shape as BTC/ETH, but NO signal and NO track-record
+    # writes — a gold signal needs its own strategy and validation run.
+    "name": "GOLD15",
+    "series_ticker": "KXGOLD15M",
+    "question": "Gold price up in next 15 mins?",
+    "window_secs": 900,
+    "spot_url": GOLD_SPOT,
+    "spot_kind": "gold",          # gold-api feed, not Coinbase's shape
+    "spot_table": "gold_spot_samples",
+    "markets_url": KALSHI_GOLD15M_MARKETS,
+    "prominence": 2, "cluster": 10, "round_step": 50,
+    "signal": False,              # no gold signal
+    "track_record": False,        # no windows/signals rows for gold
+    "book_secs": 60,              # gentler book polling than BTC/ETH
+    "keys": {
+        "spot": "g15_spot", "spot_ts": "g15_spot_ts", "window": "g15_window",
+        "markets_ts": "g15_markets_ts", "target": "g15_target",
+        "target_provisional": "g15_target_provisional", "sigma": "g15_sigma_1m",
+        "last_signal": "g15_last_signal", "levels": "g15_levels",
+        "levels_ts": "g15_levels_ts", "book": "g15_book", "book_ts": "g15_book_ts",
+    },
+}
 
 
 # ---------------------------------------------------------------- db
@@ -134,6 +172,7 @@ def init_db():
         """
         CREATE TABLE IF NOT EXISTS spot_samples (ts REAL PRIMARY KEY, price REAL);
         CREATE TABLE IF NOT EXISTS eth_spot_samples (ts REAL PRIMARY KEY, price REAL);
+        CREATE TABLE IF NOT EXISTS gold_spot_samples (ts REAL PRIMARY KEY, price REAL);
         CREATE TABLE IF NOT EXISTS windows (
             ticker TEXT PRIMARY KEY, open_ts REAL, close_ts REAL,
             target REAL, target_provisional INTEGER,
@@ -185,6 +224,18 @@ _state = {
     "eth_levels_ts": None,
     "eth_book": None,
     "eth_book_ts": None,
+    "g15_spot": None,
+    "g15_spot_ts": None,
+    "g15_window": None,
+    "g15_markets_ts": None,
+    "g15_target": None,
+    "g15_target_provisional": False,
+    "g15_sigma_1m": None,
+    "g15_last_signal": None,
+    "g15_levels": None,
+    "g15_levels_ts": None,
+    "g15_book": None,
+    "g15_book_ts": None,
     "gold_spot": None,       # USD/oz from the public gold feed
     "gold_spot_ts": None,
     "gold_market": None,     # {ticker, question, close_ts, strike_usd}
@@ -507,9 +558,23 @@ def poll_series(cfg, now):
     K = cfg["keys"]
     S = _state
     # --- spot sample (every loop, ~5s)
+    # Gold uses the gold-api feed ({"price": ...}), not Coinbase's shape.
+    # The ~5s cadence is what the target rule needs: >=5 samples in the
+    # minute before the window opens. The sample also refreshes the
+    # shared daily-gold spot, so the `gold` entry stays fresh too.
     try:
-        data = fetch_json(cfg["spot_url"])
-        price = float(data["data"]["amount"])
+        if cfg.get("spot_kind") == "gold":
+            price = fetch_gold_spot()
+            if price is not None:
+                S["gold_spot"] = price
+                S["gold_spot_ts"] = now
+        else:
+            data = fetch_json(cfg["spot_url"])
+            price = float(data["data"]["amount"])
+    except Exception as exc:  # noqa: BLE001
+        S["errors"].append(f"{cfg['name']} spot {exc}")
+        price = None
+    if price is not None:
         S[K["spot"]] = price
         S[K["spot_ts"]] = now
         conn = db()
@@ -520,8 +585,6 @@ def poll_series(cfg, now):
         conn.execute(f"DELETE FROM {cfg['spot_table']} WHERE ts < ?", (now - 86400,))
         conn.commit()
         conn.close()
-    except Exception as exc:  # noqa: BLE001
-        S["errors"].append(f"{cfg['name']} spot {exc}")
 
     # --- window (throttled fetch; the window can only change at its close)
     stored = S[K["window"]]
@@ -540,7 +603,8 @@ def poll_series(cfg, now):
         prev = stored
         if not prev or prev["ticker"] != win["ticker"]:
             # window rolled: settle the old one, start the new one
-            if prev:
+            # (gold writes no windows/signals rows — no track record)
+            if prev and cfg.get("track_record", True):
                 try:
                     settle_window(prev["ticker"], cfg["spot_table"])
                 except Exception as exc:  # noqa: BLE001
@@ -569,22 +633,30 @@ def poll_series(cfg, now):
                 target, prov = S[K["spot"]], True
             S[K["target"]] = target
             S[K["target_provisional"]] = prov
-            conn = db()
-            conn.execute(
-                "INSERT OR IGNORE INTO windows "
-                "(ticker, open_ts, close_ts, target, target_provisional) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (win["ticker"], win["open_ts"], win["close_ts"],
-                 target, 1 if prov else 0),
-            )
-            conn.commit()
-            conn.close()
+            if cfg.get("track_record", True):
+                conn = db()
+                conn.execute(
+                    "INSERT OR IGNORE INTO windows "
+                    "(ticker, open_ts, close_ts, target, target_provisional) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (win["ticker"], win["open_ts"], win["close_ts"],
+                     target, 1 if prov else 0),
+                )
+                conn.commit()
+                conn.close()
         S[K["sigma"]] = sigma_1m(now, cfg["spot_table"])
 
         # --- v1 signal, logged once per minute (never in the last 3 min)
         minute = (now - win["open_ts"]) / 60.0
         last_minute = cfg["window_secs"] / 60.0 - 3
-        if minute <= last_minute and S[K["spot"]] and S[K["target"]]:
+        # Gold has no signal: the whole block is skipped when
+        # cfg["signal"] is False, so nothing is ever logged for gold.
+        if (
+            cfg.get("signal", True)
+            and minute <= last_minute
+            and S[K["spot"]]
+            and S[K["target"]]
+        ):
             direction, conf, _, _ = direction_and_confidence(
                 S[K["spot"]], S[K["target"]], S[K["sigma"]]
             )
@@ -627,8 +699,8 @@ def poll_series(cfg, now):
                     "direction": direction, "confidence": conf,
                     "action": action, "reason": reason, "ts": now,
                 }
-        # --- live Kalshi book (every ~10s, public orderbook_fp)
-        if now - (S.get(K["book_ts"]) or 0) >= 10:
+        # --- live Kalshi book (BTC/ETH every ~10s; gold every ~60s)
+        if now - (S.get(K["book_ts"]) or 0) >= cfg.get("book_secs", 10):
             book = fetch_book(win["ticker"])
             if book:
                 S[K["book"]] = book
@@ -645,7 +717,7 @@ def poll_series(cfg, now):
 def poll_forever():
     while True:
         now = time.time()
-        for cfg in (BTC_CFG, ETH_CFG):
+        for cfg in (BTC_CFG, ETH_CFG, GOLD15_CFG):
             try:
                 poll_series(cfg, now)
             except Exception as exc:  # noqa: BLE001 - backstop; poll_series
@@ -737,6 +809,9 @@ def health():
         "gold_market_ticker": (
             _state["gold_market"]["ticker"] if _state.get("gold_market") else None
         ),
+        "gold_15m_window_ticker": (
+            _state["g15_window"]["ticker"] if _state.get("g15_window") else None
+        ),
         "recent_errors": _state["errors"][-3:],
     }
 
@@ -822,7 +897,11 @@ def live():
 
 def live_gold_payload():
     """Gold v1: live spot + the open gold market and its book, if any.
-    No bot signal — the market's own YES price is the market's view."""
+    No bot signal — the market's own YES price is the market's view.
+- Gold 15-minute (KXGOLD15M, added 2026-11-17): tracked like BTC/ETH
+  (window, target, sigma, book, levels) but with NO signal and NO
+  track-record writes. The daily KXGOLD feed is unchanged; the two
+  gold series coexist."""
     now = time.time()
     gm = _state.get("gold_market")
     spot = _state.get("gold_spot")
@@ -875,12 +954,27 @@ def live_gold_payload():
     }
 
 
+def live_gold15_payload():
+    """Gold 15-minute: the same window/target/sigma/book/levels shape as
+    BTC/ETH, but NO signal — the market's own YES price is the market's
+    view. A gold signal needs its own strategy and validation run."""
+    payload = live_series_payload(GOLD15_CFG)
+    payload["signal"] = None
+    payload["signal_note"] = (
+        "No gold signal — gold 15-minute shows the live window, target "
+        "and the market's own price. A gold signal needs its own "
+        "strategy and validation run."
+    )
+    return payload
+
+
 @app.get("/live/all")
 def live_all():
     return {
         "btc_15m": live_btc_payload(),
         "eth_15m": live_eth_payload(),
         "gold": live_gold_payload(),
+        "gold_15m": live_gold15_payload(),
     }
 
 
