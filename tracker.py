@@ -1063,6 +1063,67 @@ def track_record(series: str = "KXBTC15M"):
     }
 
 
+@app.get("/entries")
+def entries(limit: int = 50, series: str = ""):
+    """One row per entry alert: the first ENTER signal per (window, direction).
+
+    Matches the alerts hook identity (window + direction): a signal that
+    holds across minutes alerts once per window, so the first ENTER signal
+    for that window+direction IS the alert, and its confidence is the
+    percentage the user was told to enter at. Each row carries the window's
+    eventual resolution, so a user can see whether the call they were
+    alerted on held for a win. Defaults to both series; pass
+    ?series=KXBTC15M or KXETH15M for one series.
+    """
+    limit = max(1, min(200, limit))
+    conn = db()
+    like = (series + "%",) if series else ("%",)
+    rows = conn.execute(
+        "SELECT w.ticker, w.open_ts, w.close_ts, w.resolution, s.direction, "
+        "s.confidence, s.minute, s.ts FROM windows w "
+        "JOIN signals s ON s.window = w.ticker "
+        "WHERE w.ticker LIKE ? AND s.action = 'ENTER' "
+        "AND s.id = (SELECT MIN(id) FROM signals "
+        "WHERE window = w.ticker AND direction = s.direction "
+        "AND action = 'ENTER') "
+        "ORDER BY w.close_ts DESC LIMIT ?",
+        (like[0], limit),
+    ).fetchall()
+    conn.close()
+    out = []
+    for r in rows:
+        res = r["resolution"]
+        if res is None:
+            outcome = "pending"
+        elif (r["direction"] == "UP" and res == "YES") or (
+            r["direction"] == "DOWN" and res == "NO"
+        ):
+            outcome = "win"
+        else:
+            outcome = "loss"
+        out.append(
+            {
+                "window": r["ticker"],
+                "series": r["ticker"].split("-")[0],
+                "opened": datetime.fromtimestamp(
+                    r["open_ts"], tz=timezone.utc
+                ).isoformat(),
+                "closed": datetime.fromtimestamp(
+                    r["close_ts"], tz=timezone.utc
+                ).isoformat(),
+                "direction": r["direction"],
+                "confidence_pct": r["confidence"],
+                "minute": r["minute"],
+                "entered_at": datetime.fromtimestamp(
+                    r["ts"], tz=timezone.utc
+                ).isoformat(),
+                "resolution": res,
+                "outcome": outcome,
+            }
+        )
+    return out
+
+
 @app.get("/windows")
 def windows(limit: int = 10, series: str = ""):
     conn = db()
@@ -1099,7 +1160,7 @@ def root():
         {
             "service": "BTC Oracle Pro — public tracking API",
             "paper_only": True,
-            "endpoints": ["/live", "/live/all", "/candles", "/signals", "/track-record", "/windows", "/health"],
+            "endpoints": ["/live", "/live/all", "/candles", "/signals", "/track-record", "/entries", "/windows", "/health"],
             "note": "Signals are UNVALIDATED v1 logic. Not financial advice. No live trading.",
         }
     )
