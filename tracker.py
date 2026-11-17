@@ -570,16 +570,16 @@ def _init_db_once():
                 ON signals(window, action, id);
             CREATE INDEX IF NOT EXISTS idx_windows_close_ts
                 ON windows(close_ts);
-            """
-                )
+    """
+          )
               # Accounts + VIP gate tables (added 2026-11-17): auth owns the
-        # schema (AUTH_SCHEMA_SQL in auth.py) so the tables are created
-              # identically on both backends. Nothing about the existing
-              # tables changes shape.
-              auth.init_auth_tables(conn)
-              # Backfill the summary once per series (added 2026-11-17): the
-              # summary is the ONLY thing /track-record reads on the hot path,
-              # so a series with history but no summary row (e.g. a database
+          # schema (AUTH_SCHEMA_SQL in auth.py) so the tables are created
+        # identically on both backends. Nothing about the existing
+        # tables changes shape.
+        auth.init_auth_tables(conn)
+        # Backfill the summary once per series (added 2026-11-17): the
+        # summary is the ONLY thing /track-record reads on the hot path,
+          # so a series with history but no summary row (e.g. a database
         # created before this table existed) gets its counts computed
         # once here, at boot, before the poll thread can settle anything.
         # On a fresh database this inserts (0, 0) and costs nothing.
@@ -640,6 +640,15 @@ def db():
 
 
 init_db()
+
+# Accounts + VIP gate (added 2026-11-17): the auth module needs this
+# file's db() factory, and the routers must be registered before the
+# static /app mount at the end of this file (Starlette matches in
+# registration order, so the /app/live + /app/callouts API routes win
+# over the static files). The public endpoints below are untouched.
+auth.set_db_factory(db)
+app.include_router(auth.router)
+app.include_router(billing.router)
 
 
 def fetch_json(url):
