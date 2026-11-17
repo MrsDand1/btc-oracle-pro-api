@@ -1650,6 +1650,142 @@ def live_all():
     }
 
 
+# ------------------------------------------------------------ accounts + VIP gate
+  # Added 2026-11-17. The public endpoints above stay public and
+  # unchanged (the VM capture hook polls /live/all with no login). These
+  # two endpoints are the gated viewer: login required, tier-filtered.
+  # The gate is auth.effective_vip — the vip flag PLUS a currently
+  # active subscription for subscription-granted VIP (see auth.py).
+  FREE_APP_KEYS = ("btc_15m", "eth_15m")
+VIP_APP_KEYS = (
+      "btc_15m", "eth_15m", "gold", "gold_15m", "sol_15m", "xrp_15m",
+      "doge_15m", "bnb_15m", "silver_15m",
+)
+_APP_PAYLOADS = {
+      "btc_15m": live_btc_payload,
+      "eth_15m": live_eth_payload,
+      "gold": live_gold_payload,
+      "gold_15m": live_gold15_payload,
+      "sol_15m": live_sol15_payload,
+      "xrp_15m": live_xrp15_payload,
+      "doge_15m": live_doge15_payload,
+      "bnb_15m": live_bnb15_payload,
+      "silver_15m": live_silver15_payload,
+}
+
+
+def _validation_unlocked_now():
+      conn = auth.get_db()
+      try:
+                return auth.validation_unlocked(conn)
+      finally:
+                conn.close()
+        
+  
+@app.get("/app/live")
+def app_live(request: Request):
+      """The gated viewer payload: live windows for the user's tier.
+      
+          Free: BTC + ETH 15-minute (the two signal markets) + Top Markets.
+              VIP: all nine served markets + Top Markets. Polymarket BTC 5m and
+                  Broader Market are not served by this API yet, so they are in
+                      neither tier — the response says so rather than faking them.
+                          Every signal surface carries the UNVALIDATED label, same as /live.
+                              """
+      user = auth.require_user(request)
+      vip = auth.effective_vip(user)
+      keys = VIP_APP_KEYS if vip else FREE_APP_KEYS
+      return {
+                "tier": "vip" if vip else "free",
+                "email": user["email"],
+                "validation_unlocked": _validation_unlocked_now(),
+                "markets": {key: _APP_PAYLOADS[key]() for key in keys},
+                "top_markets": refresh_top_markets(),
+                "not_served_yet": [
+                              "Polymarket BTC 5m",
+                              "Broader Market",
+                ],
+                "not_served_note": (
+                              "Two of the final 12 markets have no feed in this API yet, "
+                              "so they appear in neither tier. They arrive with their own "
+                              "feeds later — nothing here stands in for them."
+                ),
+      }
+  
+
+@app.get("/app/callouts")
+def app_callouts(request: Request):
+      """Timely callouts — VIP only. The latest ENTER signals logged at
+          minute 9 or earlier (the only signals that reliably reach you in
+              time to act), one per (window, direction) — the same alert
+                  identity as /entries — newest first, with the window's eventual
+                      resolution so a call can be checked after it settles. In v1 only
+                          BTC/ETH have signals, so callouts are BTC/ETH only."""
+      user = auth.require_user(request)
+      if not auth.effective_vip(user):
+                unlocked = _validation_unlocked_now()
+                raise HTTPException(
+                              status_code=403,
+                              detail=(
+                                                "Callouts are a VIP feature"
+                                                + (
+                                                                      ", and VIP is locked until the 100-window validation passes."
+                                                                      if not unlocked
+                                                                      else ". Your account is on the free tier."
+                                                )
+                              ),
+                )
+            conn = auth.get_db()
+    try:
+              rows = conn.execute(
+                            "SELECT s.window, s.ts, s.minute, s.direction, s.confidence, "
+                            "s.reason, w.resolution FROM signals s JOIN windows w "
+                            "ON w.ticker = s.window WHERE s.action = 'ENTER' AND s.minute <= 9 "
+                            "AND s.id = (SELECT MIN(id) FROM signals WHERE window = s.window "
+                            "AND direction = s.direction AND action = 'ENTER') "
+                            "ORDER BY s.ts DESC LIMIT 10",
+              ).fetchall()
+    finally:
+        conn.close()
+          out = []
+    for r in rows:
+              res = r["resolution"]
+              if res is None:
+                            outcome = "pending"
+elif (r["direction"] == "UP" and res == "YES") or (
+              r["direction"] == "DOWN" and res == "NO"
+):
+            outcome = "win"
+else:
+            outcome = "loss"
+          out.append(
+                        {
+                                          "window": r["window"],
+                                          "series": r["window"].split("-")[0],
+                                          "direction": r["direction"],
+                                          "confidence_pct": r["confidence"],
+                                          "minute": r["minute"],
+                                          "entered_at": datetime.fromtimestamp(
+                                                                r["ts"], tz=timezone.utc
+                                          ).isoformat(),
+                                          "reason": r["reason"],
+                                          "resolution": res,
+                                          "outcome": outcome,
+                        }
+          )
+    return {
+              "tier": "vip",
+              "status": "UNVALIDATED — v1 logic, no validated edge",
+              "note": (
+                            "Only BTC and ETH have signals in v1; the feed-only markets "
+                            "have none. A callout is the first ENTER signal of its window, "
+                            "logged at minute 9 or earlier — the only signals that "
+                            "reliably reach you in time to act."
+              ),
+              "callouts": out,
+    }
+
+
 def _to_float(value):
     try:
         return float(value)
@@ -2021,7 +2157,19 @@ def root():
         {
             "service": "BTC Oracle Pro — public tracking API",
             "paper_only": True,
-            "endpoints": ["/live", "/live/all", "/candles", "/signals", "/track-record", "/entries", "/windows", "/top-markets", "/health"],
+            "endpoints": ["/live", "/live/all", "/candles", "/signals", "/track-record", "/entries", "/windows", "/top-markets", "/health", "/app", "/me", "/app/live", "/app/callouts", "/auth/signup", "/auth/login", "/auth/logout", "/stripe/webhook"],
             "note": "Signals are UNVALIDATED v1 logic. Not financial advice. No live trading.",
         }
     )
+
+
+# ------------------------------------------------------------- the /app frontend
+# Static viewer (added 2026-11-17): api/static/index.html, served at
+# /app. Mounted LAST so the /app/live and /app/callouts API routes
+# above win over the static files — Starlette matches in registration
+# order. Same origin as the API, so the login cookie works and no CORS
+# change is needed. If the static directory is ever missing (a partial
+# deploy), the service still starts and the API still works.
+_STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+if os.path.isdir(_STATIC_DIR):
+      app.mount("/app", StaticFiles(directory=_STATIC_DIR, html=True), name="app")
