@@ -19,6 +19,10 @@ holds keys, never touches an account.
   window's last signal vs how it actually resolved. Defaults to the
   BTC 15-minute series; pass `?series=KXETH15M` for ETH. Each series
   keeps its own record — validation never transfers across series.
+- `GET /entries` — one row per entry alert: the first ENTER signal per
+  (window, direction), with that alert's confidence % and the window's
+  eventual resolution/outcome (win / loss / pending). Pass
+  `?series=KXETH15M` for ETH only; no parameter returns both series.
 - `GET /windows` — recent windows with targets and resolutions.
 - `GET /health` — uptime, spot freshness, recent errors.
 
