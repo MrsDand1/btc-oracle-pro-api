@@ -74,7 +74,7 @@ holds keys, never touches an account.
   feed (`api.gold-api.com`) publishes a price only — so their tape is
   built from this service's own stored spot samples (1-minute OHLC:
   open = first sample, high/low = max/min, close = last, no volume).
-  That tape is partial after a restart until an hour of samples
+  That tape is partial on a fresh database until an hour of samples
   exists, and the response says so in a `note`. Feeds the 1-hour tape
   chart in Pulse. The candles are spot, not Kalshi market data —
   never presented as Kalshi's tape. Fixed Nov 17, 2026: an unknown
@@ -85,8 +85,8 @@ holds keys, never touches an account.
   of spot samples (swing highs/lows clustered within $25, plus round
   $500 psychological levels), served in `/live` as `levels` with
   touches and lookback minutes. Returns null until 30 minutes of
-  history exists — levels need data, and the free tier wipes history
-  on restart. Signals note when spot is within $50 of the nearest
+  history exists — levels need data, so they start thin on a
+  brand-new database. Signals note when spot is within $50 of the nearest
   level in their reason.
 - **Gold (v1):** live gold spot from the free public feed
   `api.gold-api.com/price/XAU` (verified live Nov 16, 2026), polled
@@ -156,6 +156,58 @@ holds keys, never touches an account.
   (direction vs resolution), not dollars. The paper-money ledger lives
   in the BTC Oracle Pro Dashboard, where trades are logged by hand.
 
+## Durable history (Turso, added Nov 17, 2026)
+
+The free tier has no persistent disk, so the local SQLite file used to
+start over on every restart or redeploy — the track record, entry log,
+spot samples and Key Levels history all wiped. History now lives in a
+Turso free database (SQLite-compatible libSQL) outside the service, so
+restarts no longer wipe it.
+
+- **Env vars (Render → service → Environment):**
+`TURSO_DATABASE_URL` (e.g. `libsql://<name>-<org>.turso.io`) and
+`TURSO_AUTH_TOKEN`. Both come from the Turso dashboard — create the
+database there first, then paste the values into Render. Never put
+the token in the repo.
+- **Fallback:** when the env vars are absent, the service runs exactly
+as before on the local `oracle.db` file (handy for local runs). A
+`TURSO_DATABASE_URL` without a token refuses to start rather than
+silently falling back — a silent fallback would reintroduce invisible
+wiping.
+- **Why Turso and not Render free Postgres:** Render's free Postgres
+databases are deleted after ~90 days. Supabase free pauses after a
+week idle (500 MB) and Neon free caps compute at 100 CU-hours/month
+(an always-polling API could burn through it). Turso free: 5 GB,
+500M rows read / 10M rows written per month, no card.
+- **Row budget (measured on a 30-day bench database, Nov 17, 2026 —
+sqld's own per-query read counts):** a naive client swap would have
+blown the free cap — Key Levels alone read ~4,320 spot rows per
+series per minute (~1.5B rows/month), and one unindexed
+`/track-record` call read 199M rows. So levels refresh every 10
+minutes instead of 60 seconds, sample pruning runs hourly instead of
+every tick, and `/entries` forces the windows-first join order
+(~6ms vs ~2.4s, ~95k rows/call down to a few hundred). Two indexes
+back the hot queries (`signals(window, action, id)`,
+`windows(close_ts)`). `/track-record` does NOT scan history per
+call: a `track_record_summary` table holds the running (settled,
+correct) counts per series, maintained by `settle_window` in the
+same commit that writes the resolution (a window with no signals is
+not counted, same as before) and seeded once at boot for a series
+with history but no row yet. Steady-state budget ≈ 8.4M rows
+written/month (~84% of the 10M cap — tight; the count assumes Turso
+meters DELETEs as writes, which is unconfirmed) and ≈ 200M rows
+read/month (~40% of the 500M cap) from the poll loop alone (levels
+~149M + sigma ~50M), plus endpoint reads on top — `/track-record`
+is now a 1-row lookup and `/entries` a few hundred rows, so ordinary
+polling adds only tens of millions. If Turso ever reports the cap
+close, the levers are the Developer plan $4.99/mo (25M writes,
+2.5B reads) or the 10s sample cadence (6 samples/min still satisfies
+the ≥5 target-rule samples).
+- **What was NOT verified locally:** the embedded-replica mode of the
+libsql client (the local dev server is too old to bootstrap it), so
+the service connects directly to Turso Cloud; and real-Turso network
+latency (localhost tests ran ~1–3ms per call).
+
 ## Putting it live (Render, free tier)
 
 1. Put these four files (`tracker.py`, `requirements.txt`, `render.yaml`,
@@ -171,13 +223,15 @@ holds keys, never touches an account.
   ~15 minutes with no traffic, so tracking pauses when nobody is
   watching. It wakes on the next request. The dashboard polling it
   every 5 seconds keeps it awake while the dashboard is open.
-- **History resets on restart.** The free tier has no persistent disk,
-  so the SQLite history (signals, win rate) starts over when the
-  service restarts or redeploys. For permanent history, add a free
-  Postgres (Neon or Supabase free tier) later, or move to the
-  $6–12/month VPS already in the BTC Oracle Pro plan — that is the
-  always-on fix.
-- **Rate limits need care.** Kalshi's keyed limits (Basic: 200 read /
+- **History survives restarts (Turso).** The free tier has no
+persistent disk, so the local SQLite file used to start over on
+every restart or redeploy. History now lives in a Turso free
+database (see "Durable history" above) — restarts no longer wipe
+the track record, entry log, spot samples or Key Levels. The
+service still sleeps after ~15 minutes idle; a VPS ($6–12/month)
+remains the always-on fix for that, and is also where live trading
+would eventually live.
+  **Rate limits need care.** Kalshi's keyed limits (Basic: 200 read /
   100 write tokens/sec) are generous, but the keyless limits this
   service runs under are undocumented — a burst of checks from one IP
   got an HTTP 429 on Nov 16, 2026. The service polls gently (BTC spot
