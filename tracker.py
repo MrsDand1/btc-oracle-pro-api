@@ -73,12 +73,20 @@ Data reality (verified Nov 16, 2026; corrected the same day):
 - Durable history (added 2026-11-17): the SQLite history (windows,
   signals, spot samples) lives in a Turso free database when
   TURSO_DATABASE_URL + TURSO_AUTH_TOKEN are set, and in the local
-  oracle.db file when they are not. Render free Postgres was
+oracle.db file when they are not. Render free Postgres was
   deliberately not used — free Postgres databases are deleted after
-  ~90 days. See README.md for the env vars and the row budget.
+    ~90 days. See README.md for the env vars and the row budget.
+    - Accounts + VIP gate (added 2026-11-17): email + password accounts
+      (auth.py, stdlib scrypt) and a VIP flag gated by the 100-window
+        validation bar. Free tier: BTC + ETH live windows, signals,
+          watchlist, sparklines, daily results note. VIP additionally: timely
+            callouts + the full served markets. Stripe Subscriptions is the
+              payment rail (billing.py webhook only — no product, no price, no
+                checkout in this build). The web viewer is served at /app from this
+                  same service. The news-veto pop-up was dropped, not built.
 
-Run:  uvicorn tracker:app --host 0.0.0.0 --port 8000
-Endpoints: /live, /live/all, /signals, /track-record, /entries, /windows, /top-markets, /health
+                  Run:  uvicorn tracker:app --host 0.0.0.0 --port 8000
+                  Endpoints: /live, /live/all, /signals, /track-record, /entries, /windows, /top-markets, /health
 """
 
 import json
@@ -90,9 +98,13 @@ import time
 import urllib.request
 from datetime import datetime, timezone
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+import auth  # accounts + VIP gate (added 2026-11-17); auth never imports tracker
+import billing  # Stripe Subscriptions webhook (added 2026-11-17)
 
 DB_PATH = "oracle.db"
 # Durable history (added 2026-11-17): by default the tracker still uses
@@ -559,10 +571,15 @@ def _init_db_once():
             CREATE INDEX IF NOT EXISTS idx_windows_close_ts
                 ON windows(close_ts);
             """
-        )
-        # Backfill the summary once per series (added 2026-11-17): the
-        # summary is the ONLY thing /track-record reads on the hot path,
-        # so a series with history but no summary row (e.g. a database
+                )
+              # Accounts + VIP gate tables (added 2026-11-17): auth owns the
+        # schema (AUTH_SCHEMA_SQL in auth.py) so the tables are created
+              # identically on both backends. Nothing about the existing
+              # tables changes shape.
+              auth.init_auth_tables(conn)
+              # Backfill the summary once per series (added 2026-11-17): the
+              # summary is the ONLY thing /track-record reads on the hot path,
+              # so a series with history but no summary row (e.g. a database
         # created before this table existed) gets its counts computed
         # once here, at boot, before the poll thread can settle anything.
         # On a fresh database this inserts (0, 0) and costs nothing.
