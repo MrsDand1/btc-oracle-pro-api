@@ -54,6 +54,11 @@ holds keys, never touches an account.
   legacy `yes`/`no` keys Kalshi removed on 2026-03-12. Volume, open
   interest, and last trade are still not available without a key
   (WebSocket) — the API never invents them.
+- **1-hour tape (`/candles`):** the last 60 1-minute candles from
+  Coinbase's public Exchange API (spot, not Kalshi — no key), cached
+  ~45s; `?series=KXETH15M` for ETH. Feeds the 1-hour tape chart in
+  Pulse. The candles are Coinbase spot, not Kalshi market data —
+  never presented as Kalshi's tape.
 - **Key levels:** support/resistance computed from the last 6 hours
   of spot samples (swing highs/lows clustered within $25, plus round
   $500 psychological levels), served in `/live` as `levels` with
