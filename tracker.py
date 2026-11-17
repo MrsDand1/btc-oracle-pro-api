@@ -113,6 +113,23 @@ COINBASE_XRP_SPOT = "https://api.coinbase.com/v2/prices/XRP-USD/spot"
 COINBASE_DOGE_SPOT = "https://api.coinbase.com/v2/prices/DOGE-USD/spot"
 COINBASE_BNB_SPOT = "https://api.coinbase.com/v2/prices/BNB-USD/spot"
 SILVER_SPOT = "https://api.gold-api.com/price/XAG"
+# /candles sources (added 2026-11-17): Coinbase publishes the same free
+# 1-minute candles for SOL/XRP/DOGE/BNB as for BTC/ETH. Gold/silver have
+# no candle feed anywhere free — gold-api is price-only — so their tape
+# is built from this service's own stored spot samples instead.
+COINBASE_CANDLE_PRODUCTS = {
+    "KXBTC15M": "BTC-USD",
+    "KXETH15M": "ETH-USD",
+    "KXSOL15M": "SOL-USD",
+    "KXXRP15M": "XRP-USD",
+    "KXDOGE15M": "DOGE-USD",
+    "KXBNB15M": "BNB-USD",
+}
+SAMPLE_TAPE_TABLES = {
+    "KXGOLD15M": "gold_spot_samples",
+    "KXGOLD": "gold_spot_samples",
+    "KXSILVER15M": "silver_spot_samples",
+}
 KALSHI_SOL15M_MARKETS = (
     "https://api.elections.kalshi.com/trade-api/v2/markets"
     "?series_ticker=KXSOL15M&limit=5&status=open"
@@ -620,6 +637,44 @@ def fetch_candles(product):
         return out
     except Exception:
         return None
+
+
+def candles_from_samples(table):
+    """1-minute OHLC tape built from this service's own stored spot
+    samples — the fallback for gold/silver, whose feed (api.gold-api.com)
+    publishes a price only, no candle history.
+
+    Buckets the last 60 minutes of samples by minute: open = first
+    sample, high = max, low = min, close = last, v = None (no volume
+    in a spot feed). Returns [{t, o, h, l, c, v}] oldest first, or []
+    when the table holds nothing yet (e.g. right after a restart).
+    The table name comes only from SAMPLE_TAPE_TABLES (hardcoded), never
+    from a request. Never raises."""
+    try:
+        conn = db()
+        now = time.time()
+        floor = int(now // 60) * 60 - 59 * 60
+        rows = conn.execute(
+            f"SELECT ts, price FROM {table} WHERE ts >= ? ORDER BY ts",
+            (floor,),
+        ).fetchall()
+        conn.close()
+    except Exception:
+        return []
+    buckets = {}
+    for ts, price in rows:
+        minute = int(ts // 60) * 60
+        bucket = buckets.get(minute)
+        if bucket is None:
+            buckets[minute] = {
+                "t": minute, "o": price, "h": price,
+                "l": price, "c": price, "v": None,
+            }
+        else:
+            bucket["h"] = max(bucket["h"], price)
+            bucket["l"] = min(bucket["l"], price)
+            bucket["c"] = price
+    return [buckets[m] for m in sorted(buckets)]
 
 
 def fetch_gold_spot():
@@ -1455,25 +1510,71 @@ def top_markets():
 
 @app.get("/candles")
 def candles(series: str = "KXBTC15M"):
-    """1-hour tape: the last 60 1-minute candles from Coinbase's public
-    Exchange API (spot, not Kalshi — no key). Cached ~45s; the data only
-    moves once a minute, so Pulse polls it about that often."""
-    product = "ETH-USD" if series == "KXETH15M" else "BTC-USD"
-    key = "candles_eth" if series == "KXETH15M" else "candles_btc"
-    ts_key = key + "_ts"
+    """1-hour tape: the last 60 1-minute candles.
+
+    BTC/ETH/SOL/XRP/DOGE/BNB come from Coinbase's public Exchange API
+    (spot, not Kalshi — no key). Gold (KXGOLD15M and daily KXGOLD) and
+    silver (KXSILVER15M) come from this service's own stored spot
+    samples — their feed (api.gold-api.com) publishes a price only, no
+    candle history — so the tape is partial after a restart until an
+    hour of samples exists, and the response says so. Cached ~45s; the
+    data only moves once a minute, so Pulse polls it about that often.
+    An unsupported series returns status "unavailable" and no candles —
+    never another coin's data. (Fixed 2026-11-17: the old code silently
+    returned BTC candles for any unknown series.)"""
     now = time.time()
-    if _state.get(key) and now - (_state.get(ts_key) or 0) < 45:
-        data = _state[key]
-    else:
-        data = fetch_candles(product)
-        if data:
-            _state[key] = data
-            _state[ts_key] = now
+    product = COINBASE_CANDLE_PRODUCTS.get(series)
+    if product is not None:
+        key = "candles_" + series
+        ts_key = key + "_ts"
+        if _state.get(key) and now - (_state.get(ts_key) or 0) < 45:
+            data = _state[key]
+        else:
+            data = fetch_candles(product)
+            if data:
+                _state[key] = data
+                _state[ts_key] = now
+        return {
+            "series": series,
+            "source": "Coinbase public Exchange API — 1-minute spot candles, no key",
+            "status": "ok" if data else "unavailable",
+            "candles": data or [],
+        }
+    table = SAMPLE_TAPE_TABLES.get(series)
+    if table is not None:
+        key = "candles_" + series
+        ts_key = key + "_ts"
+        if _state.get(key) and now - (_state.get(ts_key) or 0) < 45:
+            data = _state[key]
+        else:
+            data = candles_from_samples(table)
+            if data:
+                _state[key] = data
+                _state[ts_key] = now
+        payload = {
+            "series": series,
+            "source": "Stored spot samples — 1-minute OHLC built from this service's own sampling; gold-api publishes no candle history",
+            "status": "ok" if data else "unavailable",
+            "candles": data or [],
+        }
+        if data and len(data) < 60:
+            payload["note"] = (
+                f"Tape is partial — {len(data)} minute(s) since the last "
+                "restart; it fills in over the next hour."
+            )
+        elif not data:
+            payload["note"] = "No spot samples stored yet since the last restart."
+        return payload
     return {
         "series": series,
-        "source": "Coinbase public Exchange API — 1-minute spot candles, no key",
-        "status": "ok" if data else "unavailable",
-        "candles": data or [],
+        "source": "No candle feed for this series",
+        "status": "unavailable",
+        "note": (
+            f"No candles for {series}: this endpoint serves BTC, ETH, SOL, "
+            "XRP, DOGE and BNB via Coinbase, and gold/silver from stored "
+            "spot samples."
+        ),
+        "candles": [],
     }
 
 
