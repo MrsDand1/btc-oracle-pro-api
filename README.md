@@ -231,7 +231,7 @@ the track record, entry log, spot samples or Key Levels. The
 service still sleeps after ~15 minutes idle; a VPS ($6–12/month)
 remains the always-on fix for that, and is also where live trading
 would eventually live.
-  **Rate limits need care.** Kalshi's keyed limits (Basic: 200 read /
+-   **Rate limits need care.** Kalshi's keyed limits (Basic: 200 read /
   100 write tokens/sec) are generous, but the keyless limits this
   service runs under are undocumented — a burst of checks from one IP
   got an HTTP 429 on Nov 16, 2026. The service polls gently (BTC spot
