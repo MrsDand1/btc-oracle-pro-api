@@ -10,8 +10,8 @@ holds keys, never touches an account.
   live BTC spot price, computed target, spot vs target ($ and %),
   1-minute sigma, current signal, and an explicit Kalshi-book status.
 - `GET /live/all` — the 15-minute BTC feed plus the ETH 15-minute
-  feed plus the gold feed in one call (`btc_15m` + `eth_15m` +
-  `gold`), for the Pulse viewer tabs.
+  feed plus the gold feeds in one call (`btc_15m` + `eth_15m` +
+  `gold` + `gold_15m`), for the Pulse viewer tabs.
 - `GET /signals` — recent signals (direction, confidence, action,
   reason). Pass `?series=KXETH15M` for ETH only; no parameter returns
   both series.
@@ -75,6 +75,18 @@ holds keys, never touches an account.
   one appears. Gold v1 serves NO signal: the market's own YES price
   is the market's view, and a gold signal needs its own strategy and
   validation run.
+- **Gold 15-minute (KXGOLD15M, added Nov 17, 2026):** Kalshi runs
+  15-minute gold markets alongside the daily KXGOLD series — verified
+  live Nov 17, 2026 (KXGOLD15M-26NOV170730-30, "Gold price up in next
+  15 mins?", Up 76¢ / Down 25¢). The daily feed alone left Pulse's
+  gold tab empty while a 15-minute gold market was live, so the API
+  now tracks KXGOLD15M the same way as BTC/ETH: live window, 60s
+  pre-open target, 1-minute sigma, live book (polled ~60s), key
+  levels (swing prominence $2, cluster $10, round levels every $50).
+  NO gold signal, NO track-record writes, NO ledger for gold — the
+  `gold_15m` entry in `/live/all` carries `signal: null` with a note
+  saying so. The daily KXGOLD feed is unchanged; the two gold series
+  coexist.
 - **Signals:** v1 momentum logic, UNVALIDATED. Nothing here is a
   validated strategy until it passes 100+ paper trades plus
   out-of-sample validation.
