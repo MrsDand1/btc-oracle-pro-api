@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BTC Oracle Pro — App</title>
+<style>
+  :root {
+    --bg: #0c1f1d;
+    --surface: #122b28;
+    --surface-2: #173530;
+    --border: #234740;
+    --text: #e8f1ee;
+    --muted: #9db8b1;
+    --teal: #2dd4bf;
+    --orange: #f59e0b;
+    --danger: #f87171;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 16px; }
+  header { padding: 8px 0 0; }
+  h1 { font-size: 1.5rem; margin: 0; }
+  .tagline { color: var(--muted); margin: 2px 0 12px; }
+  .banner {
+    background: var(--surface-2); border: 1px solid var(--orange);
+    color: var(--orange); border-radius: 8px; padding: 10px 12px;
+    font-size: 0.9rem; margin-bottom: 16px;
+  }
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; margin-bottom: 16px;
+  }
+  .card h2 { margin: 0 0 8px; font-size: 1.1rem; }
+  .muted { color: var(--muted); font-size: 0.9rem; }
+  label { display: block; font-size: 0.9rem; margin: 10px 0 4px; }
+  input[type="email"], input[type="password"] {
+    width: 100%; padding: 10px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+    font-size: 1rem;
+  }
+  button {
+    background: var(--teal); color: #04211d; border: none; border-radius: 8px;
+    padding: 10px 18px; font-size: 1rem; font-weight: 600; cursor: pointer;
+    margin-top: 12px;
+  }
+  button.secondary { background: transparent; color: var(--teal); border: 1px solid var(--teal); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .error { color: var(--danger); margin-top: 10px; font-size: 0.95rem; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 4px; }
+  .tabs button { margin-top: 0; }
+  .tabs button.active { background: var(--teal); color: #04211d; }
+  .tabs button:not(.active) { background: transparent; color: var(--teal); border: 1px solid var(--teal); }
+  .market {
+    border: 1px solid var(--border); border-radius: 10px; padding: 12px;
+    margin-bottom: 12px; background: var(--surface);
+  }
+  .market .head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .market .name { font-weight: 700; }
+  .star { background: none; border: none; color: var(--muted); font-size: 1.3rem; padding: 0 4px; margin: 0; cursor: pointer; }
+  .star.on { color: var(--orange); }
+  .big { font-size: 1.4rem; font-weight: 700; }
+  .up { color: var(--teal); }
+  .down { color: var(--orange); }
+  .signal {
+    display: inline-block; border-radius: 6px; padding: 4px 8px; font-weight: 600;
+    background: var(--surface-2); border: 1px solid var(--border); margin-top: 6px;
+  }
+  .callout { border-left: 3px solid var(--teal); padding: 8px 10px; margin: 8px 0; background: var(--surface-2); border-radius: 0 8px 8px 0; }
+  .callout .meta { color: var(--muted); font-size: 0.85rem; }
+  .pill {
+    display: inline-block; font-size: 0.8rem; border: 1px solid var(--border);
+    border-radius: 999px; padding: 2px 10px; margin-right: 6px; color: var(--muted);
+  }
+  .pill.vip { color: var(--orange); border-color: var(--orange); }
+  .pill.free { color: var(--teal); border-color: var(--teal); }
+  footer { color: var(--muted); font-size: 0.85rem; padding: 8px 0 24px; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+  svg.spark { display: block; margin-top: 8px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>BTC Oracle Pro</h1>
+    <p class="tagline">The fifteen-minute BTC window, live. Paper only — this app never trades.</p>
+  </header>
+
+  <div class="banner">UNVALIDATED — v1 logic, no validated edge. Signals are paper-only until they pass 100+ paper trades plus out-of-sample validation. Not financial advice.</div>
+
+  <!-- Auth -->
+  <section class="card" id="auth-card">
+    <div class="tabs">
+      <button id="tab-signin" class="active" type="button">Sign in</button>
+      <button id="tab-signup" type="button">Create account</button>
+    </div>
+    <form id="auth-form">
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="email" required>
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" required minlength="8">
+      <div id="signup-extra" class="hidden">
+        <label>
+          <input id="age-confirm" type="checkbox"> I confirm I am 18 or older
+        </label>
+        <p class="muted">Passwords cannot be reset by email yet — the owner resets them. Choose a password you will remember, or keep it in a password manager.</p>
+      </div>
+      <div class="error hidden" id="auth-error"></div>
+      <button id="auth-submit" type="submit">Sign in</button>
+    </form>
+  </section>
+
+  <!-- App -->
+  <section id="app-view" class="hidden">
+    <div class="card">
+      <div class="row">
+        <div>
+          <span class="pill free" id="tier-pill">Free</span>
+          <span id="account-email" class="muted"></span>
+          <span id="sub-status" class="muted"></span>
+        </div>
+        <button class="secondary" id="logout-btn" type="button">Sign out</button>
+      </div>
+      <p class="muted" id="validation-note" style="margin: 10px 0 0;"></p>
+      <div id="subscription-block" class="hidden" style="margin-top: 12px;">
+        <strong>Subscription</strong>
+        <div id="subscription-line" class="muted"></div>
+        <p class="muted" style="margin: 8px 0 0;">Cancel anytime — you keep VIP until the end of the period you paid for. No refunds.</p>
+        <button class="secondary" id="portal-btn" type="button">Manage subscription</button>
+        <div class="error hidden" id="portal-error"></div>
+      </div>
+    </div>
+
+    <div class="card" id="callouts-card">
+      <h2>Timely callouts</h2>
+      <div id="callouts-body" class="muted">Loading…</div>
+    </div>
+
+    <div id="markets"></div>
+
+    <div class="card">
+      <h2>Daily results note</h2>
+      <div id="results-body" class="muted">Loading…</div>
+    </div>
+  </section>
+
+  <footer>
+    18+ only. BTC Oracle Pro is a data display, not financial advice. Every signal is UNVALIDATED v1 logic. All results are published, wins and losses. No money is held here, and nothing here places a trade.
+  </footer>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const MARKET_LABELS = {
+  btc_15m: "BTC · 15 min", eth_15m: "ETH · 15 min", gold: "Gold · daily",
+  gold_15m: "Gold · 15 min", sol_15m: "SOL · 15 min", xrp_15m: "XRP · 15 min",
+  doge_15m: "DOGE · 15 min", bnb_15m: "BNB · 15 min", silver_15m: "Silver · 15 min",
+};
+const CANDLE_SERIES = {
+  btc_15m: "KXBTC15M", eth_15m: "KXETH15M", gold_15m: "KXGOLD15M",
+  sol_15m: "KXSOL15M", xrp_15m: "KXXRP15M", doge_15m: "KXDOGE15M",
+  bnb_15m: "KXBNB15M", silver_15m: "KXSILVER15M",
+};
+let mode = "signin";
+let me = null;
+
+function getWatchlist() {
+  try { return JSON.parse(localStorage.getItem("btc-oracle-watchlist") || "[]"); }
+  catch (e) { return []; }
+}
+function setWatchlist(list) {
+  localStorage.setItem("btc-oracle-watchlist", JSON.stringify(list));
+}
+function fmtUsd(v, spot) {
+  if (v === null || v === undefined) return "—";
+  const d = spot && spot < 1 ? 6 : spot && spot < 10 ? 4 : 2;
+  return "$" + Number(v).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+function sparklineSVG(candles) {
+  if (!candles || candles.length < 2) return "";
+  const closes = candles.map(c => c.c);
+  const min = Math.min(...closes), max = Math.max(...closes);
+  const w = 260, h = 44, pad = 3;
+  const range = (max - min) || 1;
+  const pts = closes.map((c, i) => {
+    const x = pad + (i / (closes.length - 1)) * (w - 2 * pad);
+    const y = pad + (1 - (c - min) / range) * (h - 2 * pad);
+    return x.toFixed(1) + "," + y.toFixed(1);
+  }).join(" ");
+  const up = closes[closes.length - 1] >= closes[0];
+  const color = up ? "#2dd4bf" : "#f59e0b";
+  return '<svg class="spark" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">'
+    + '<polyline points="' + pts + '" fill="none" stroke="' + color + '" stroke-width="2"/></svg>';
+}
+async function api(path, opts) {
+  const res = await fetch(path, Object.assign({ credentials: "same-origin" }, opts || {}));
+  let body = null;
+  try { body = await res.json(); } catch (e) { body = null; }
+  if (!res.ok) {
+    const err = new Error((body && body.detail) || ("Request failed: " + res.status));
+    err.status = res.status;
+    throw err;
+  }
+  return body;
+}
+function showError(el, err) { el.textContent = err.message; el.classList.remove("hidden"); }
+function hideError(el) { el.textContent = ""; el.classList.add("hidden"); }
+
+function setMode(m) {
+  mode = m;
+  $("tab-signin").classList.toggle("active", m === "signin");
+  $("tab-signup").classList.toggle("active", m === "signup");
+  $("signup-extra").classList.toggle("hidden", m !== "signup");
+  $("auth-submit").textContent = m === "signin" ? "Sign in" : "Create account";
+  $("password").setAttribute("autocomplete", m === "signin" ? "current-password" : "new-password");
+  hideError($("auth-error"));
+}
+
+async function loadCallouts() {
+  const body = $("callouts-body");
+  try {
+    const data = await api("/app/callouts");
+    if (!data.callouts || !data.callouts.length) {
+      body.textContent = "No actionable callouts right now. A callout appears when an ENTER signal is logged at minute 9 or earlier.";
+      return;
+    }
+    body.innerHTML = data.callouts.map(c => {
+      const out = c.outcome === "win" ? "held for a win" : c.outcome === "loss" ? "did not hold" : "still open";
+      return '<div class="callout"><strong>' + c.series + ' ' + c.direction + '</strong> — '
+        + c.confidence_pct + '% confidence, minute ' + c.minute
+        + ' <span class="meta">(' + c.window + ' · ' + out + ')</span><br>'
+        + '<span class="muted">' + c.reason + '</span></div>';
+    }).join("");
+  } catch (err) {
+    if (err.status === 403) {
+      body.innerHTML = "<strong>Callouts are a VIP feature.</strong><br>" + err.message
+        + "<br><span class='muted'>Free accounts see the live windows and signals below and can watch for a call themselves.</span>";
+    } else {
+      body.textContent = "Callouts could not be loaded: " + err.message;
+    }
+  }
+}
+
+async function loadMarkets() {
+  const data = await api("/app/live");
+  const keys = Object.keys(data.markets || {});
+  const starred = getWatchlist();
+  keys.sort((a, b) => (starred.includes(b) ? 1 : 0) - (starred.includes(a) ? 1 : 0));
+  const host = $("markets");
+  host.innerHTML = "";
+  for (const key of keys) {
+    const m = data.markets[key];
+    const div = document.createElement("div");
+    div.className = "market";
+    const spot = m.spot_usd;
+    const sig = m.signal;
+    const vs = m.spot_vs_target_usd;
+    const vsClass = (vs === null || vs === undefined) ? "" : (vs >= 0 ? "up" : "down");
+    const vsText = (vs === null || vs === undefined) ? "—" : (vs >= 0 ? "+" : "") + fmtUsd(vs, spot) + " vs target";
+    div.innerHTML =
+      '<div class="head"><span class="name">' + (MARKET_LABELS[key] || key) + '</span>'
+      + '<button type="button" class="star' + (starred.includes(key) ? " on" : "") + '" aria-label="Star this market">★</button></div>'
+      + '<div class="big">' + fmtUsd(spot, spot) + '</div>'
+      + '<div class="muted">Target ' + fmtUsd(m.target_usd, spot)
+      + (m.target_provisional ? " (provisional)" : "")
+      + ' · <span class="' + vsClass + '">' + vsText + '</span></div>'
+      + (sig
+        ? '<div class="signal">' + sig.direction + ' · ' + sig.confidence_pct + '% confidence</div>'
+          + '<div class="muted">' + sig.status + '</div>'
+        : '<div class="muted">' + (m.signal_note || "No signal for this market.") + '</div>')
+      + '<div class="spark-host" data-series="' + (CANDLE_SERIES[key] || "") + '"></div>';
+    div.querySelector(".star").addEventListener("click", (ev) => {
+      const list = getWatchlist();
+      const i = list.indexOf(key);
+      if (i >= 0) list.splice(i, 1); else list.push(key);
+      setWatchlist(list);
+      ev.target.classList.toggle("on", i < 0);
+    });
+    host.appendChild(div);
+    const series = CANDLE_SERIES[key];
+    if (series) {
+      fetch("/candles?series=" + series, { credentials: "same-origin" })
+        .then(r => r.json())
+        .then(d => {
+          const el = div.querySelector(".spark-host");
+          if (el && d.candles && d.candles.length > 1) {
+            const first = d.candles[0].c, last = d.candles[d.candles.length - 1].c;
+            const pct = first ? ((last - first) / first * 100) : 0;
+            el.innerHTML = sparklineSVG(d.candles)
+              + '<div class="muted">Last hour: ' + (pct >= 0 ? "+" : "") + pct.toFixed(2) + '%</div>';
+          }
+        })
+        .catch(() => {});
+    }
+  }
+  if (!keys.length) host.innerHTML = '<div class="card muted">No live windows right now.</div>';
+}
+
+async function loadResults() {
+  const body = $("results-body");
+  try {
+    const [btc, eth, entries] = await Promise.all([
+      api("/track-record?series=KXBTC15M"),
+      api("/track-record?series=KXETH15M"),
+      api("/entries?limit=5"),
+    ]);
+    const line = (r) => r.series + ": " + r.windows_settled + " settled, " + r.signals_correct
+      + " correct" + (r.win_rate_pct !== null ? " (" + r.win_rate_pct + "%)" : "");
+    let html = "<p>" + line(btc) + "<br>" + line(eth) + "</p>"
+      + "<p class='muted'>UNVALIDATED — needs 100+ paper trades + out-of-sample validation. "
+      + "<a href='/track-record' style='color: var(--teal);'>Full track record</a></p>";
+    if (entries && entries.length) {
+      html += "<p>Latest entry alerts:</p>" + entries.map(e =>
+        "<div>• " + e.series + " " + e.direction + " " + e.confidence_pct + "% — " + e.outcome + "</div>"
+      ).join("");
+    }
+    body.innerHTML = html;
+  } catch (err) {
+    body.textContent = "Results could not be loaded: " + err.message;
+  }
+}
+
+async function refresh() {
+  try {
+    me = await api("/me");
+  } catch (err) {
+    $("auth-card").classList.remove("hidden");
+    $("app-view").classList.add("hidden");
+    return;
+  }
+  $("auth-card").classList.add("hidden");
+  $("app-view").classList.remove("hidden");
+  $("account-email").textContent = me.email;
+  const pill = $("tier-pill");
+  pill.textContent = me.vip_effective ? "VIP" : "Free";
+  pill.className = "pill " + (me.vip_effective ? "vip" : "free");
+  $("sub-status").textContent = me.subscription_status && me.subscription_status !== "none"
+    ? "Subscription: " + me.subscription_status : "";
+  $("validation-note").textContent = me.validation_unlocked
+    ? "VIP gate is open."
+    : "VIP opens after the 100-window validation passes. Until then every account is free, and no VIP status can be granted.";
+  const subBlock = $("subscription-block");
+  if (me.subscription_status && me.subscription_status !== "none") {
+    subBlock.classList.remove("hidden");
+    const line = $("subscription-line");
+    if (me.subscription_cancel_at_period_end && me.subscription_current_period_end) {
+      const end = new Date(me.subscription_current_period_end)
+        .toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
+      line.textContent = "VIP until " + end + " — cancels then. You keep access until the end of the period you paid for.";
+    } else if (me.subscription_status === "active") {
+      line.textContent = "Active — renews at the end of the period.";
+    } else {
+      line.textContent = "Subscription: " + me.subscription_status + ".";
+    }
+  } else {
+    subBlock.classList.add("hidden");
+  }
+  await Promise.all([loadCallouts(), loadMarkets(), loadResults()]);
+}
+
+$("tab-signin").addEventListener("click", () => setMode("signin"));
+$("tab-signup").addEventListener("click", () => setMode("signup"));
+$("auth-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const btn = $("auth-submit");
+  btn.disabled = true;
+  hideError($("auth-error"));
+  try {
+    const payload = { email: $("email").value, password: $("password").value };
+    if (mode === "signup") {
+      payload.age_confirm = $("age-confirm").checked;
+      await api("/auth/signup", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } else {
+      await api("/auth/login", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    }
+    await refresh();
+  } catch (err) {
+    showError($("auth-error"), err);
+  } finally {
+    btn.disabled = false;
+  }
+});
+$("logout-btn").addEventListener("click", async () => {
+  try { await api("/auth/logout", { method: "POST" }); } catch (e) {}
+  me = null;
+  $("app-view").classList.add("hidden");
+  $("auth-card").classList.remove("hidden");
+});
+$("portal-btn").addEventListener("click", async () => {
+  const btn = $("portal-btn");
+  btn.disabled = true;
+  hideError($("portal-error"));
+  try {
+    const data = await api("/billing/portal", { method: "POST" });
+    window.open(data.url, "_blank");
+  } catch (err) {
+    showError($("portal-error"), err);
+  } finally {
+    btn.disabled = false;
+  }
+});
+setMode("signin");
+refresh();
+</script>
+</body>
+</html>
