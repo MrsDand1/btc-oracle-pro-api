@@ -65,11 +65,22 @@ holds keys, never touches an account.
   `volume_fp`, `open_interest_fp` — corrected Nov 17, 2026); only the
   live trade tape still needs a key (WebSocket) — the API never
   invents it.
-- **1-hour tape (`/candles`):** the last 60 1-minute candles from
-  Coinbase's public Exchange API (spot, not Kalshi — no key), cached
-  ~45s; `?series=KXETH15M` for ETH. Feeds the 1-hour tape chart in
-  Pulse. The candles are Coinbase spot, not Kalshi market data —
-  never presented as Kalshi's tape.
+- **1-hour tape (`/candles`):** the last 60 1-minute candles (spot,
+  not Kalshi — no key), cached ~45s. BTC, ETH, SOL, XRP, DOGE and BNB
+  (`?series=KXSOL15M` etc.) come from Coinbase's public Exchange API
+  (verified live Nov 17, 2026 — SOL-USD candles return ~$73.74).
+  Gold (`?series=KXGOLD15M` or `KXGOLD`) and silver
+  (`?series=KXSILVER15M`) have no free candle feed anywhere — their
+  feed (`api.gold-api.com`) publishes a price only — so their tape is
+  built from this service's own stored spot samples (1-minute OHLC:
+  open = first sample, high/low = max/min, close = last, no volume).
+  That tape is partial after a restart until an hour of samples
+  exists, and the response says so in a `note`. Feeds the 1-hour tape
+  chart in Pulse. The candles are spot, not Kalshi market data —
+  never presented as Kalshi's tape. Fixed Nov 17, 2026: an unknown
+  series used to silently return BTC candles; it now returns status
+  `unavailable` with a note naming the series — never another coin's
+  data.
 - **Key levels:** support/resistance computed from the last 6 hours
   of spot samples (swing highs/lows clustered within $25, plus round
   $500 psychological levels), served in `/live` as `levels` with
