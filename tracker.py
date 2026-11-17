@@ -625,7 +625,6 @@ def db():
 init_db()
 
 
-
 def fetch_json(url):
     req = urllib.request.Request(url, headers={"User-Agent": "BTC-Oracle-Pro-API/1.0"})
     with urllib.request.urlopen(req, timeout=15) as resp:
