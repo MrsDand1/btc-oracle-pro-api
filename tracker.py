@@ -282,6 +282,29 @@ def fetch_book(ticker):
         return None
 
 
+def fetch_candles(product):
+    """1-minute candles from Coinbase's public Exchange API (no key).
+
+    Returns the last 60 candles as [{t, o, h, l, c, v}] (time, open,
+    high, low, close, volume) or None. Rows arrive newest-first as
+    [time, low, high, open, close, volume]. Never raises."""
+    try:
+        data = fetch_json(
+            f"https://api.exchange.coinbase.com/products/{product}/candles"
+            "?granularity=60"
+        )
+        out = []
+        for row in sorted(data, key=lambda r: r[0])[-60:]:
+            ts, low, high, open_, close, vol = row
+            out.append({
+                "t": int(ts), "o": open_, "h": high,
+                "l": low, "c": close, "v": vol,
+            })
+        return out
+    except Exception:
+        return None
+
+
 def fetch_gold_spot():
     """Live gold spot (USD/oz) from a free public feed. Never raises."""
     try:
@@ -861,6 +884,30 @@ def live_all():
     }
 
 
+@app.get("/candles")
+def candles(series: str = "KXBTC15M"):
+    """1-hour tape: the last 60 1-minute candles from Coinbase's public
+    Exchange API (spot, not Kalshi — no key). Cached ~45s; the data only
+    moves once a minute, so Pulse polls it about that often."""
+    product = "ETH-USD" if series == "KXETH15M" else "BTC-USD"
+    key = "candles_eth" if series == "KXETH15M" else "candles_btc"
+    ts_key = key + "_ts"
+    now = time.time()
+    if _state.get(key) and now - (_state.get(ts_key) or 0) < 45:
+        data = _state[key]
+    else:
+        data = fetch_candles(product)
+        if data:
+            _state[key] = data
+            _state[ts_key] = now
+    return {
+        "series": series,
+        "source": "Coinbase public Exchange API — 1-minute spot candles, no key",
+        "status": "ok" if data else "unavailable",
+        "candles": data or [],
+    }
+
+
 @app.get("/signals")
 def signals(limit: int = 20, series: str = ""):
     conn = db()
@@ -961,7 +1008,7 @@ def root():
         {
             "service": "BTC Oracle Pro — public tracking API",
             "paper_only": True,
-            "endpoints": ["/live", "/live/all", "/signals", "/track-record", "/windows", "/health"],
+            "endpoints": ["/live", "/live/all", "/candles", "/signals", "/track-record", "/windows", "/health"],
             "note": "Signals are UNVALIDATED v1 logic. Not financial advice. No live trading.",
         }
     )
