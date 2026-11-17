@@ -406,47 +406,224 @@ SILVER15_CFG = {
 
 
 # ---------------------------------------------------------------- db
-def db():
+class _Row(tuple):
+    """A row that answers both by name and by position.
+
+    libsql (the Turso client) returns plain tuples; the tracker reads
+    rows by column name in 8+ places (row["ts"], row["target"], ...) and
+    by unpacking in candles_from_samples (for ts, price in rows). This
+    subclass carries the column names from cursor.description so both
+    styles keep working, whichever backend is in use — local SQLite rows
+    are wrapped the same way, so behaviour is identical on both paths.
+    """
+
+    def __new__(cls, values, columns):
+        obj = super().__new__(cls, tuple(values))
+        obj._columns = tuple(columns)
+        # Name lookup is case-insensitive: libsql reports the `action`
+        # column as ACTION (it is a SQL keyword) while local SQLite
+        # reports it as written. The tracker always asks lowercase.
+        obj._by_name = {c.lower(): i for i, c in enumerate(columns)}
+        return obj
+
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            try:
+                return super().__getitem__(self._by_name[key.lower()])
+            except KeyError:
+                raise KeyError(key) from None
+        return super().__getitem__(key)
+
+    def keys(self):
+        return list(self._columns)
+
+
+class _Cursor:
+    """Wraps a DB-API cursor so fetchone()/fetchall() return _Row."""
+
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    @property
+    def description(self):
+        return self._cursor.description
+
+    def fetchone(self):
+        row = self._cursor.fetchone()
+        if row is None:
+            return None
+        return _Row(row, [d[0] for d in self._cursor.description])
+
+    def fetchall(self):
+        cols = [d[0] for d in self._cursor.description]
+        return [_Row(row, cols) for row in self._cursor.fetchall()]
+
+
+class _Conn:
+    """Wraps a DB-API connection: same execute/commit/close surface.
+
+    The Turso path needs no special casing except that PRAGMA
+    journal_mode=WAL is a local-file setting — the remote server
+    rejects it — so it is applied on the local path only (see _raw_db).
+    Everything else passes through untouched.
+    """
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, sql, params=()):
+        return _Cursor(self._conn.execute(sql, params))
+
+    def executescript(self, sql):
+        return self._conn.executescript(sql)
+
+    def commit(self):
+        return self._conn.commit()
+
+    def close(self):
+        return self._conn.close()
+
+
+def _raw_db():
+    """Open a raw connection on whichever backend is configured."""
+    if _USE_TURSO:
+        import libsql  # lazy: a missing package only breaks the Turso path
+
+        return _Conn(libsql.connect(TURSO_DATABASE_URL, auth_token=TURSO_AUTH_TOKEN))
     conn = sqlite3.connect(DB_PATH, timeout=30)
-    conn.row_factory = sqlite3.Row
     try:
         # WAL mode: readers (dashboard/API endpoints) must not block the
         # writer (poll loop). Lock contention froze the API 2026-11-16.
         conn.execute("PRAGMA journal_mode=WAL")
     except sqlite3.Error:
         pass
-    return conn
+    return _Conn(conn)
+
+
+_db_ready = False
+_db_init_last_try = 0.0
+
+
+def _track_record_counts(conn, series):
+    """(settled, correct) for one series, counted from settled windows.
+
+    One row per settled window: its LAST signal (MAX id) vs how the
+    window resolved. The ticker range uses the windows PK index; the
+    MAX(id) subquery uses idx_signals_window_action_id. Used by the
+    /track-record fallback and the boot backfill — the hot path reads
+    the track_record_summary table instead (see settle_window).
+    """
+    row = conn.execute(
+        "SELECT COUNT(*), SUM(CASE WHEN (s.direction = 'UP' "
+        "AND w.resolution = 'YES') OR (s.direction = 'DOWN' "
+        "AND w.resolution = 'NO') THEN 1 ELSE 0 END) "
+        "FROM windows w JOIN signals s ON s.window = w.ticker "
+        "WHERE w.resolution IS NOT NULL AND w.ticker >= ? AND w.ticker < ? "
+        "AND s.id = (SELECT MAX(id) FROM signals WHERE window = w.ticker)",
+        (series, series + "\U0010FFFF"),
+    ).fetchone()
+    return (row[0] or 0, row[1] or 0)
+
+
+def _init_db_once():
+    """Create tables + indexes if missing. Returns True on success."""
+    try:
+        conn = _raw_db()
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS spot_samples (ts REAL PRIMARY KEY, price REAL);
+            CREATE TABLE IF NOT EXISTS eth_spot_samples (ts REAL PRIMARY KEY, price REAL);
+            CREATE TABLE IF NOT EXISTS gold_spot_samples (ts REAL PRIMARY KEY, price REAL);
+            CREATE TABLE IF NOT EXISTS sol_spot_samples (ts REAL PRIMARY KEY, price REAL);
+            CREATE TABLE IF NOT EXISTS xrp_spot_samples (ts REAL PRIMARY KEY, price REAL);
+            CREATE TABLE IF NOT EXISTS doge_spot_samples (ts REAL PRIMARY KEY, price REAL);
+            CREATE TABLE IF NOT EXISTS bnb_spot_samples (ts REAL PRIMARY KEY, price REAL);
+            CREATE TABLE IF NOT EXISTS silver_spot_samples (ts REAL PRIMARY KEY, price REAL);
+            CREATE TABLE IF NOT EXISTS windows (
+                ticker TEXT PRIMARY KEY, open_ts REAL, close_ts REAL,
+                target REAL, target_provisional INTEGER,
+                resolution TEXT, resolved_at REAL
+            );
+            CREATE TABLE IF NOT EXISTS signals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, window TEXT, ts REAL,
+                minute REAL, direction TEXT, confidence REAL,
+                action TEXT, reason TEXT
+            );
+            CREATE TABLE IF NOT EXISTS track_record_summary (
+                series TEXT PRIMARY KEY,
+                settled INTEGER NOT NULL DEFAULT 0,
+                correct INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_signals_window_action_id
+                ON signals(window, action, id);
+            CREATE INDEX IF NOT EXISTS idx_windows_close_ts
+                ON windows(close_ts);
+            """
+        )
+        # Backfill the summary once per series (added 2026-11-17): the
+        # summary is the ONLY thing /track-record reads on the hot path,
+        # so a series with history but no summary row (e.g. a database
+        # created before this table existed) gets its counts computed
+        # once here, at boot, before the poll thread can settle anything.
+        # On a fresh database this inserts (0, 0) and costs nothing.
+        for series in ("KXBTC15M", "KXETH15M"):
+            row = conn.execute(
+                "SELECT settled FROM track_record_summary WHERE series = ?",
+                (series,),
+            ).fetchone()
+            if row is None:
+                settled, correct = _track_record_counts(conn, series)
+                conn.execute(
+                    "INSERT INTO track_record_summary (series, settled, "
+                    "correct) VALUES (?, ?, ?)",
+                    (series, settled, correct),
+                )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as exc:  # noqa: BLE001 - logged, retried lazily
+        print(f"[db] init failed: {exc}", flush=True)
+        return False
 
 
 def init_db():
-    conn = db()
-    conn.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS spot_samples (ts REAL PRIMARY KEY, price REAL);
-        CREATE TABLE IF NOT EXISTS eth_spot_samples (ts REAL PRIMARY KEY, price REAL);
-        CREATE TABLE IF NOT EXISTS gold_spot_samples (ts REAL PRIMARY KEY, price REAL);
-        CREATE TABLE IF NOT EXISTS sol_spot_samples (ts REAL PRIMARY KEY, price REAL);
-        CREATE TABLE IF NOT EXISTS xrp_spot_samples (ts REAL PRIMARY KEY, price REAL);
-        CREATE TABLE IF NOT EXISTS doge_spot_samples (ts REAL PRIMARY KEY, price REAL);
-        CREATE TABLE IF NOT EXISTS bnb_spot_samples (ts REAL PRIMARY KEY, price REAL);
-        CREATE TABLE IF NOT EXISTS silver_spot_samples (ts REAL PRIMARY KEY, price REAL);
-        CREATE TABLE IF NOT EXISTS windows (
-            ticker TEXT PRIMARY KEY, open_ts REAL, close_ts REAL,
-            target REAL, target_provisional INTEGER,
-            resolution TEXT, resolved_at REAL
-        );
-        CREATE TABLE IF NOT EXISTS signals (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, window TEXT, ts REAL,
-            minute REAL, direction TEXT, confidence REAL,
-            action TEXT, reason TEXT
-        );
-        """
-    )
-    conn.commit()
-    conn.close()
+    """Create the schema at import, retrying a few times on Turso.
+
+    A transient Turso outage at boot must not kill the import: db()
+    retries the init lazily afterwards (at most once a minute).
+    """
+    global _db_ready, _db_init_last_try
+    _db_init_last_try = time.time()
+    if _USE_TURSO:
+        for _ in range(3):
+            if _init_db_once():
+                _db_ready = True
+                return
+            time.sleep(2)
+        print("[db] Turso init failed after 3 attempts; will retry lazily",
+              flush=True)
+    else:
+        _db_ready = _init_db_once()
+
+
+def db():
+    """A connection on the configured backend (Turso or local SQLite).
+
+    If the schema was never created successfully (e.g. Turso was down
+    at boot), retry the init at most once a minute — a primary-down
+    at boot must not brick the service permanently.
+    """
+    global _db_ready, _db_init_last_try
+    if not _db_ready:
+        now = time.time()
+        if now - _db_init_last_try >= 60:
+            _db_init_last_try = now
+            _db_ready = _init_db_once()
+    return _raw_db()
 
 
 init_db()
+
 
 
 def fetch_json(url):
