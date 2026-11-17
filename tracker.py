@@ -898,10 +898,7 @@ def live():
 def live_gold_payload():
     """Gold v1: live spot + the open gold market and its book, if any.
     No bot signal — the market's own YES price is the market's view.
-- Gold 15-minute (KXGOLD15M, added 2026-11-17): tracked like BTC/ETH
-  (window, target, sigma, book, levels) but with NO signal and NO
-  track-record writes. The daily KXGOLD feed is unchanged; the two
-  gold series coexist."""
+    """
     now = time.time()
     gm = _state.get("gold_market")
     spot = _state.get("gold_spot")
