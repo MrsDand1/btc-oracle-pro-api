@@ -537,6 +537,53 @@ def _track_record_counts(conn, series):
     return (row[0] or 0, row[1] or 0)
 
 
+# One-time owner bootstrap (added 2026-11-18). The Render web shell
+# is unavailable on the free plan, so create_owner.py cannot be run,
+# and the owner's email already has a regular account (email is
+# UNIQUE, and create_owner.py refuses when an owner exists). At
+# startup, if no owner exists yet, promote that existing account to
+# owner. Idempotent: once an owner exists this is a permanent no-op.
+# It never creates a user, never touches a password hash, and never
+# touches VIP/Stripe fields. REMOVE after the owner exists (cleanup
+# deploy) — the function is a no-op by then, but it should not live
+# in the codebase.
+_OWNER_BOOTSTRAP_EMAIL = "cheliwilliams3677@gmail.com"
+
+
+def _bootstrap_owner_once(conn):
+    """Promote the existing owner-email account to owner, once.
+
+    Returns True if a row was promoted, False otherwise. Safe to run
+    on every startup: after promotion an owner exists, so later calls
+    are no-ops. Never raises — a failure is logged and boot continues.
+    """
+    try:
+        row = conn.execute(
+            "SELECT email FROM users WHERE is_owner = 1 LIMIT 1"
+        ).fetchone()
+        if row is not None:
+            print("[owner-bootstrap] owner already exists; nothing to do",
+                  flush=True)
+            return False
+        email = auth.normalize_email(_OWNER_BOOTSTRAP_EMAIL)
+        row = conn.execute(
+            "SELECT id FROM users WHERE email = ?", (email,)
+        ).fetchone()
+        if row is None:
+            print("[owner-bootstrap] no account for the owner email; "
+                  "nothing to do", flush=True)
+            return False
+        conn.execute(
+            "UPDATE users SET is_owner = 1 WHERE email = ?", (email,)
+        )
+        conn.commit()
+        print(f"[owner-bootstrap] promoted {email} to owner", flush=True)
+        return True
+    except Exception as exc:  # noqa: BLE001 - logged, never blocks boot
+        print(f"[owner-bootstrap] failed: {exc}", flush=True)
+        return False
+
+
 def _init_db_once():
     """Create tables + indexes if missing. Returns True on success."""
     try:
@@ -577,6 +624,10 @@ def _init_db_once():
         # identically on both backends. Nothing about the existing
         # tables changes shape.
         auth.init_auth_tables(conn)
+        # One-time owner bootstrap (added 2026-11-18): promotes the
+        # existing owner-email account to owner; see
+        # _bootstrap_owner_once above. No-op once an owner exists.
+        _bootstrap_owner_once(conn)
         # Backfill the summary once per series (added 2026-11-17): the
         # summary is the ONLY thing /track-record reads on the hot path,
         # so a series with history but no summary row (e.g. a database
