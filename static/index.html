@@ -271,6 +271,8 @@
   .lm-stat .v.down { color: var(--amber); }
   .lm-note { font-size: 12px; color: var(--ink-faint); margin-top: 10px; }
   .chart-box { overflow-x: auto; }
+  .candle-box { min-height: 190px; display: flex; align-items: center; justify-content: center; }
+  .candle-box svg { width: 100%; }
   .settled-sub { border-top: 1px solid var(--line-soft); margin-top: 14px; padding-top: 12px; }
   .lm-res {
     font-family: var(--mono); font-size: 11px; font-weight: 700; text-transform: uppercase;
@@ -1371,6 +1373,91 @@ async function tapeHTML(def) {
   return '<div class="panel"><div class="panel-head"><h2 class="panel-title">1-hour tape · 1m candles</h2><span class="fresh">' + fmtPct(chg) + ' · 1h</span></div>'
     + '<div class="chart-box">' + svg + '</div></div>';
 }
+function candleChartSVG(inWin, open, close, target, enter, w, h) {
+  // Candlesticks for the current window only. Mirrors the 1-hour tape's
+  // candle drawing, but the x-axis is the 15-minute window (one slot per
+  // minute) instead of the last hour. Display only — no signal logic.
+  if (!inWin || !inWin.length) return "";
+  const all = [];
+  inWin.forEach(c => { all.push(c.h, c.l); });
+  if (target !== null && target !== undefined) all.push(target);
+  let lo = Math.min.apply(null, all), hi = Math.max.apply(null, all);
+  const pad = (hi - lo) * 0.08 || 1;
+  lo -= pad; hi += pad;
+  const X = (t) => 34 + ((t - open) / (close - open)) * (w - 44);
+  const Y = (v) => 8 + (1 - (v - lo) / (hi - lo)) * (h - 26);
+  const fmtT = (t) => {
+    const d = new Date(t);
+    return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  };
+  const slot = (w - 44) / 15; // one slot per minute of the 15-minute window
+  let svg = '<svg width="100%" viewBox="0 0 ' + w + ' ' + h + '" style="display:block">';
+  if (target !== null && target !== undefined) {
+    const yT = Y(target);
+    svg += '<line x1="' + X(open) + '" y1="' + yT + '" x2="' + X(close) + '" y2="' + yT + '" stroke="#ffb020" stroke-width="1.5" stroke-dasharray="6 5"/>';
+    svg += '<text x="' + (X(close) - 4) + '" y="' + (yT - 5) + '" fill="#ffb020" font-size="10" font-family="JetBrains Mono, monospace" text-anchor="end">target ' + fmtUsd(target, target) + '</text>';
+  }
+  inWin.forEach((c) => {
+    const x = X(c.t * 1000);
+    const up = c.c >= c.o;
+    const col = up ? "var(--up)" : "var(--down)";
+    const bw = Math.max(2, slot * 0.6);
+    svg += '<line x1="' + x.toFixed(1) + '" y1="' + Y(c.h).toFixed(1) + '" x2="' + x.toFixed(1) + '" y2="' + Y(c.l).toFixed(1) + '" style="stroke:' + col + '" stroke-width="1"/>';
+    svg += '<rect x="' + (x - bw / 2).toFixed(1) + '" y="' + Y(Math.max(c.o, c.c)).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(1, Math.abs(Y(c.o) - Y(c.c))).toFixed(1) + '" style="fill:' + col + '"/>';
+  });
+  if (enter) {
+    // One marker only: a dashed vertical at the ENTER time plus one
+    // triangle at the top (UP) or bottom (DOWN) of the plot.
+    const ex = X(new Date(enter.entered_at).getTime());
+    const col = enter.direction === "UP" ? "var(--up)" : "var(--down)";
+    svg += '<line x1="' + ex.toFixed(1) + '" y1="8" x2="' + ex.toFixed(1) + '" y2="' + (h - 18) + '" style="stroke:' + col + '" stroke-width="1" stroke-dasharray="3 3"/>';
+    if (enter.direction === "UP") {
+      svg += '<polygon points="' + ex.toFixed(1) + ',10 ' + (ex - 6).toFixed(1) + ',20 ' + (ex + 6).toFixed(1) + ',20" style="fill:' + col + '"/>';
+    } else {
+      svg += '<polygon points="' + ex.toFixed(1) + ',20 ' + (ex - 6).toFixed(1) + ',10 ' + (ex + 6).toFixed(1) + ',10" style="fill:' + col + '"/>';
+    }
+  }
+  svg += '<text x="34" y="' + (h - 4) + '" fill="var(--ink-faint)" font-size="10" font-family="JetBrains Mono, monospace">window open ' + fmtT(open) + '</text>';
+  svg += '<text x="' + (w - 10) + '" y="' + (h - 4) + '" fill="var(--ink-faint)" font-size="10" font-family="JetBrains Mono, monospace" text-anchor="end">+15m</text>';
+  return svg + "</svg>";
+}
+async function candleChartHTML(def, m) {
+  // 1-minute candlesticks for the CURRENT window — BTC and ETH tabs only
+  // (called only from the signal branch of renderPane). Display only: it
+  // reads the same /candles feed the tape already uses, through the
+  // 60-second ensureCandles cache — no new fetch, no new timer, and the
+  // 5-second live refresh just re-renders what the cache already holds.
+  const candles = await ensureCandles(def.series);
+  const b = windowBounds(def, m);
+  const inWin = candlesInWindow(candles, b.open, b.close);
+  const now = Date.now();
+  const freshest = (candles && candles.length) ? candles[candles.length - 1].t * 1000 : 0;
+  const stale = !candles || !candles.length || (now - freshest > 180000);
+  const head = '<div class="panel"><div class="panel-head"><h2 class="panel-title">1-minute candles · current window</h2><span class="fresh">' + inWin.length + ' of 15 min</span></div>';
+  if (stale) {
+    return head + '<div class="candle-box"><p class="sig-note">Chart unavailable right now — the 1-minute feed has not answered recently. The rest of this tab is unaffected.</p></div></div>';
+  }
+  if (!inWin.length) {
+    return head + '<div class="candle-box"><p class="sig-note">No completed 1-minute candles in this window yet — a candle appears as each minute closes.</p></div></div>';
+  }
+  // The actionable ENTER for this window: the FIRST ENTER logged
+  // (earliest entered_at) — never one marker per re-fire.
+  let enter = null;
+  const ticker = m.market && m.market.ticker;
+  if (ticker && entriesCache) {
+    const mine = (entriesCache || []).filter(e => e.series === def.series && e.window === ticker);
+    if (mine.length) {
+      mine.sort((a, b2) => new Date(a.entered_at) - new Date(b2.entered_at));
+      enter = mine[0];
+    }
+  }
+  const svg = candleChartSVG(inWin, b.open, b.close, m.target_usd, enter, 600, 190);
+  const cap = enter
+    ? '<p class="lm-note">' + (enter.direction === "UP" ? "▲" : "▼") + ' ENTER ' + esc(enter.direction) + ' at min ' + esc(enter.minute) + ' of 15 · ' + esc(enter.confidence_pct) + '% — the actionable call for this window. One marker only; later flips are logged in the entry log, not marked here.</p>'
+    : '<p class="lm-note">No ENTER logged yet in this window — the marker appears here once confidence reaches 60%.</p>';
+  return head + '<div class="candle-box">' + svg + '</div>' + cap
+    + '<p class="lm-note">Source: Coinbase spot, 1-minute candles. The dashed line is this window\'s target. This chart shows movement only — it is not a prediction.</p></div>';
+}
 function bookHTML(m) {
   const book = m.kalshi_book || {};
   const yes = (book.yes_ladder || []).slice(0, 6);
@@ -2256,6 +2343,7 @@ async function renderPane(key) {
     html += explainerHTML(true);
     html += '<div class="dash dash-top">' + signalPanelHTML(def, m) + gaugeHTML(def, m) + telemetryHTML(m) + '</div>';
     html += await confirmStripHTML(def, m);
+    html += await candleChartHTML(def, m);
     const chart = await chartPanelHTML(def, m);
     html += '<div class="dash dash-mid">' + chart + momentumHTML(m) + '</div>';
     html += await lineMovedHTML(def, m);
