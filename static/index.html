@@ -2068,7 +2068,7 @@ function trackRecordHTML(series, isSignal) {
     + '<p class="sig-note" style="margin-top:10px;">UNVALIDATED — needs 100+ paper trades + out-of-sample validation</p>'
     + '<p class="sig-note">Counted from settled windows only — a window joins the record when it closes and its outcome is known, never before. Each market keeps its own record; validation never transfers across.</p>'
     + '<p class="sig-note">' + esc(r.resolution_note || "Resolution judged from the final-minute spot average vs target — an approximation of the real CF Benchmarks BRTI settlement rule.") + '</p>'
-    + '<p class="sig-note">This count covers windows since the feed last restarted only — the free service restarts wipe the in-memory record, so a 0/0 here is a fresh count starting over, never a full history.</p>'
+    + '<p class="sig-note">This count covers windows since the durable record began on Nov 17, 2026 — it survives service restarts, so a 0/0 here would mean no windows have settled yet, never a wiped history.</p>'
     + '</div>';
 }
 function entryLogHTML(series) {
@@ -2093,7 +2093,7 @@ function entryLogHTML(series) {
   return '<div class="panel"><div class="panel-head"><h2 class="panel-title">Entry log — ' + esc(series.replace("KX", "").replace("15M", "")) + '</h2><span class="fresh">per alert · from the feed</span></div>'
     + '<div class="chips"><span class="chip">' + list.length + ' alerts</span><span class="chip">' + won + ' won</span><span class="chip">' + lost + ' lost</span><span class="chip">' + settling + ' settling</span><span class="chip">' + pct + ' of settled alerts won</span></div>'
     + rows
-    + '<p class="sig-note">Per alert, since the feed last restarted — not a daily count.</p></div>';
+    + '<p class="sig-note">Per alert, since the durable record began — not a daily count.</p></div>';
 }
 function settledChipsHTML(series) {
   if (!windowsCache) return "";
