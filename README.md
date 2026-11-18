@@ -245,3 +245,64 @@ This service can become the dashboard's live feed: point the
 dashboard's data URL at this API and the two stop being separate
 trackers. That wiring is a later step, after the API has run live
 for a while.
+
+## Accounts + VIP gate (added Nov 17, 2026)
+
+Email + password accounts (stdlib `hashlib.scrypt`, no new
+dependencies) and a VIP flag gated by the 100-window validation bar.
+The web viewer is served from this same service at `/app`
+(`static/index.html`, no build step). The public endpoints above are
+unchanged and still need no login — the VM capture hook polls
+`/live/all` with no login, and Pulse reads the public API.
+
+- **Free tier:** BTC + ETH 15-minute live windows, signals,
+  watchlist, sparklines, daily results note.
+- **VIP tier:** additionally the timely callouts (`GET /app/callouts`
+    — ENTER signals logged at minute 9 or earlier) and the full
+    served markets. Polymarket BTC 5m and Broader Market are not
+    served by this API yet, so they are in neither tier.
+  - **The VIP lock:** `validation_unlocked` starts off. No account can
+      hold VIP status until both series have 100+ settled windows
+      (enforced in `POST /admin/unlock-validation`, which also grants VIP
+      to every user whose subscription is already active). The owner
+      flips the switch only after the 100-window backtest plus the
+      out-of-sample review.
+    - **Auth endpoints:** `POST /auth/signup` (18+ confirmation
+        required), `POST /auth/login`, `POST /auth/logout`, `GET /me`.
+        Sessions are random tokens stored hashed in the DB, in an HttpOnly
+        SameSite=Lax Secure cookie, 30 days. There is no email
+        verification and no self-serve password reset in v1 (no email
+        service is connected); the owner resets passwords with
+        `create_owner.py` / `reset_password.py` in the Render shell.
+      - **Admin endpoints (owner account only):** `GET`
+          /admin/validation-status, `POST /admin/unlock-validation`, `POST`
+          /admin/grant-vip, `POST /admin/revoke-vip`, `POST`
+          `/admin/link-stripe`. The first owner account is created with
+          `create_owner.py` in the Render shell after deploy.
+        - **Stripe Subscriptions is the payment rail** (webhook only — no
+            product, no price, no checkout in this build). `POST`
+            `/stripe/webhook` verifies the Stripe signature (stdlib HMAC) with
+            the `STRIPE_WEBHOOK_SECRET` env var and flips the VIP flag on
+            subscription active / cancelled / past-due. A subscription that
+            becomes active while the gate is locked is recorded but grants no
+            VIP until the unlock. `POST /billing/portal` creates a Stripe
+            Customer Portal session (needs the `STRIPE_SECRET_KEY` env var)
+            so a member can cancel in a couple of clicks.
+          - **Cancellation policy:** cancel anytime, cancel-at-period-end —
+              the member keeps VIP until the end of the period they paid for,
+              and the webhook flips the flag off at period end. No refunds: no
+              refund button, no refund endpoint, no automatic refunds. The
+              no-refund + cancel-anytime terms are shown in the app's account
+              panel and must be shown on the subscribe screen before payment.
+              In the Stripe dashboard, set the portal's cancellation to "at the
+              end of the billing period".
+            - **Env vars (Render → service → Environment, both optional until
+                configured):** `STRIPE_WEBHOOK_SECRET` (signing secret from the
+                Stripe dashboard webhook endpoint), `STRIPE_SECRET_KEY` (account
+                secret key, for portal sessions only). Neither is ever in the repo.
+                Without them the webhook answers 503 and the portal answers 503;
+                the rest of the service runs exactly as before.
+              - **No balance or money display anywhere** in the app. No parlay,
+                  promo, leaderboard, or copy-trading features. No push
+                  notifications yet (separate step after the gate). No live trading
+                  code, ever. The news-veto pop-up was dropped, not built.
