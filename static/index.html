@@ -300,6 +300,88 @@
   .splitbar .no { background: var(--amber); }
   .verdict { font-family: var(--mono); font-size: 23px; font-weight: 700; margin: 4px 0; }
 
+  /* Kraken depth ladder (ported from Pulse: same layout, same classes) */
+  .kraken-note { font-size: 12.5px; color: var(--ink-faint); margin: 0 0 12px; line-height: 1.55; }
+  .book-status { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); margin-top: 12px; }
+  .imb-label { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 6px; }
+  .imb-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--line-soft); }
+  .imb-bar .b { background: var(--up); height: 100%; transition: width 0.5s ease; }
+  .imb-bar .a { background: var(--down); height: 100%; transition: width 0.5s ease; }
+  .imb-vals { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-family: var(--mono); font-size: 12.5px; margin-top: 6px; }
+  .imb-vals .b { color: var(--up); font-weight: 700; }
+  .imb-vals .a { color: var(--down); font-weight: 700; }
+  .depth-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+  @media (max-width: 520px) { .depth-grid { grid-template-columns: 1fr; } }
+  .depth-side { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.12em; margin-bottom: 6px; }
+  .depth-side.bids { color: var(--up); } .depth-side.asks { color: var(--down); }
+  .depth-head { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); padding: 0 7px 4px; }
+  .depth-head span:nth-child(2), .depth-head span:nth-child(3) { text-align: right; min-width: 62px; }
+  .depth-row { position: relative; display: grid; grid-template-columns: 1fr auto auto; gap: 10px; font-family: var(--mono); font-size: 12.5px; padding: 5px 7px; margin-bottom: 4px; border-radius: 4px; overflow: hidden; background: var(--row-bg); }
+  .depth-row .bar { position: absolute; top: 0; bottom: 0; border-radius: 3px; transition: width 0.5s ease; }
+  .depth-row.bid .bar { right: 0; background: linear-gradient(90deg, rgba(46,229,157,0.06), rgba(46,229,157,0.30)); box-shadow: inset -2px 0 0 rgba(46,229,157,0.5); }
+  .depth-row.ask .bar { left: 0; background: linear-gradient(270deg, rgba(255,93,108,0.06), rgba(255,93,108,0.30)); box-shadow: inset 2px 0 0 rgba(255,93,108,0.5); }
+  .depth-row span { position: relative; z-index: 1; }
+  .depth-row .pr { font-weight: 700; }
+  .depth-row .sz, .depth-row .tot { text-align: right; min-width: 62px; }
+  .depth-row .tot { color: var(--ink-dim); }
+  .depth-meta { display: flex; gap: 8px 18px; flex-wrap: wrap; font-family: var(--mono); font-size: 12.5px; color: var(--ink-dim); margin-top: 10px; }
+  .depth-meta b { color: var(--ink); font-weight: 700; }
+
+  /* Polymarket BTC 5-minute tab (ported from Pulse: same layout) */
+  .poly-count { font-family: var(--mono); font-size: 15px; font-weight: 700; margin: 6px 0 2px; }
+  .poly-pcts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0 4px; }
+  .poly-pct .k { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); }
+  .poly-pct .v { font-family: var(--mono); font-size: 34px; font-weight: 800; line-height: 1.1; }
+  .poly-pct.up .v { color: var(--up); }
+  .poly-pct.down .v { color: var(--amber); }
+  .poly-pct .s { font-family: var(--mono); font-size: 13px; color: var(--ink-dim); margin-top: 2px; }
+
+  /* Broader Market (ported from Pulse: same layout, same classes) */
+  .extras { margin-top: 22px; }
+  .extras-head { margin-bottom: 12px; }
+  .extras-title { font-family: var(--mono); font-size: 13px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-dim); }
+  .extras-sub { font-size: 13.5px; color: var(--ink-faint); margin-top: 4px; line-height: 1.55; }
+  .extras-grid { display: grid; grid-template-columns: 0.9fr 1.6fr; gap: 14px; align-items: stretch; }
+  .extras-grid .panel { margin-bottom: 0; }
+  @media (max-width: 920px) { .extras-grid { grid-template-columns: 1fr; } }
+  .src-tag {
+    font-family: var(--mono); font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--teal); border: 1px solid var(--line); border-radius: 5px; padding: 4px 7px; white-space: nowrap;
+  }
+  .spot-label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 4px; }
+  .fng-value { font-family: var(--mono); font-size: 58px; font-weight: 800; line-height: 1; letter-spacing: -0.03em; }
+  .fng-class { font-family: var(--mono); font-size: 16px; font-weight: 700; margin-top: 6px; }
+  .fng-bar { position: relative; height: 10px; border-radius: 5px; margin-top: 16px;
+    background: linear-gradient(90deg, #d92d3f 0%, #e85d3d 22%, #ffb020 45%, #a8c256 68%, #2ee59d 100%); }
+  [data-theme="light"] .fng-bar { background: linear-gradient(90deg, #d92d3f 0%, #e85d3d 22%, #c98a00 45%, #6d9c2e 68%, #0b9668 100%); }
+  .fng-marker { position: absolute; top: -4px; width: 4px; height: 18px; background: var(--ink); border-radius: 2px; transform: translateX(-2px); }
+  .fng-scale { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10px; color: var(--ink-faint); margin-top: 6px; letter-spacing: 0.04em; }
+  .fng-meta { font-size: 12.5px; color: var(--ink-faint); margin-top: 12px; line-height: 1.55; }
+  .majors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+  @media (max-width: 520px) { .majors { grid-template-columns: 1fr; } }
+  .major { background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: 8px; padding: 10px 12px; }
+  .major .sym { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.1em; color: var(--ink-faint); }
+  .major .pr { font-family: var(--mono); font-size: 19px; font-weight: 700; margin-top: 2px; }
+  .major .hl { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); margin-top: 3px; line-height: 1.5; }
+  .pct { font-family: var(--mono); font-weight: 700; font-size: 13px; }
+  .pct.up { color: var(--up); } .pct.down { color: var(--down); }
+  .mover-row { display: grid; grid-template-columns: 64px 1fr auto auto; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line-soft); }
+  .mover-row:last-child { border-bottom: none; }
+  .mover-sym { font-family: var(--mono); font-size: 14px; font-weight: 700; }
+  .mover-bar-wrap { height: 8px; background: var(--line-soft); border-radius: 4px; overflow: hidden; min-width: 40px; }
+  .mover-bar { height: 100%; border-radius: 4px; }
+  .mover-bar.up { background: var(--up); } .mover-bar.down { background: var(--down); }
+  .mover-pr { font-family: var(--mono); font-size: 13.5px; text-align: right; }
+  .mover-vol { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
+  .cg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 22px; }
+  @media (max-width: 640px) { .cg-grid { grid-template-columns: 1fr; } }
+  .cg-row { display: flex; align-items: baseline; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line-soft); }
+  .cg-row:last-child { border-bottom: none; }
+  .cg-name { font-weight: 600; font-size: 14.5px; }
+  .cg-sym { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: var(--ink-faint); }
+  .cg-pr { font-family: var(--mono); font-size: 15px; font-weight: 700; margin-left: auto; text-align: right; }
+  .cg-note { font-size: 12.5px; color: var(--ink-faint); margin-top: 12px; line-height: 1.55; }
+
   /* Track record / entries */
   .tr-cells { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
   .tr-cell { background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: 8px; padding: 12px 8px; }
@@ -466,7 +548,7 @@
     </div>
 
     <div class="tablist" id="market-tabs" role="tablist" aria-label="Markets"></div>
-    <p class="legend" id="tab-legend">Glowing tab — amber = price moved 2× its usual wiggle from target · orange = 3× or more · a brief flash = a market flipped direction mid-window. Movement only, not a call. Gold's daily market lives inside the Gold tab. Polymarket BTC 5m and Broader Market have no feed here yet — they appear in neither tier.</p>
+    <p class="legend" id="tab-legend">Glowing tab — amber = price moved 2× its usual wiggle from target · orange = 3× or more · a brief flash = a market flipped direction mid-window. Movement only, not a call. Gold's daily market lives inside the Gold tab.</p>
 
     <div id="panes">
       <div class="panel wake" id="wake-panel">
@@ -477,10 +559,36 @@
       </div>
     </div>
 
-    <div class="panel" id="not-served-panel">
+    <div class="panel hidden" id="not-served-panel">
       <div class="panel-head"><h2 class="panel-title">Not served yet</h2></div>
-      <div id="not-served-body" class="muted">Polymarket BTC 5m and Broader Market have no feed in this API yet, so they appear in neither tier. They arrive with their own feeds later — nothing here stands in for them.</div>
+      <div id="not-served-body" class="muted"></div>
     </div>
+
+    <!-- ============ BROADER MARKET — FREE PUBLIC FEEDS ============ -->
+    <section class="extras" aria-label="Broader market from free public feeds">
+      <div class="extras-head">
+        <div class="extras-title">Broader market</div>
+        <p class="extras-sub">Wider crypto context from three free public feeds, each labeled by source. These are spot-market views for context only — none of them is a Kalshi market, none carries a Pulse signal, and none is Kalshi volume or tape.</p>
+      </div>
+      <div class="extras-grid">
+        <section class="panel" aria-label="Fear and Greed Index">
+          <div class="panel-head"><span class="panel-title">Market mood</span><span class="src-tag">Alternative.me</span></div>
+          <div id="fngBody"><p class="sig-note">Loading the Fear &amp; Greed Index…</p></div>
+          <div class="book-status" id="fng-fresh"></div>
+        </section>
+        <section class="panel" aria-label="Binance US top movers and 24-hour stats">
+          <div class="panel-head"><span class="panel-title">Top movers · 24h</span><span class="src-tag">Binance.US</span></div>
+          <div id="binanceBody"><p class="sig-note">Loading Binance.US markets…</p></div>
+          <div class="book-status" id="binance-fresh"></div>
+        </section>
+      </div>
+      <section class="panel" aria-label="More coins from CoinGecko" style="margin-top: 14px;">
+        <div class="panel-head"><span class="panel-title">More coins · spot only</span><span class="src-tag">CoinGecko</span></div>
+        <div id="cgBody"><p class="sig-note">Loading CoinGecko spot prices…</p></div>
+        <p class="cg-note">Spot only, like gold — a live price and its 24-hour change, with no Kalshi market and no Pulse signal behind it. Source: CoinGecko free public feed.</p>
+        <div class="book-status" id="cg-fresh"></div>
+      </section>
+    </section>
 
     <div class="panel">
       <div class="panel-head"><h2 class="panel-title">Today</h2><span class="fresh" id="today-date">—</span></div>
@@ -534,6 +642,7 @@ const TAB_DEFS = [
   { key: "doge_15m", label: "DOGE", sub: "15-minute window", series: "KXDOGE15M", signal: false },
   { key: "bnb_15m", label: "BNB", sub: "15-minute window", series: "KXBNB15M", signal: false },
   { key: "silver_15m", label: "Silver", sub: "15-minute window", series: "KXSILVER15M", signal: false },
+  { key: "polymarket", label: "Polymarket", sub: "BTC · 5-minute", series: null, signal: false },
   { key: "top", label: "Top Markets", sub: "Kalshi · by volume", series: null, signal: false },
 ];
 const CANDLE_SERIES = {
@@ -556,6 +665,12 @@ let todayCache = { KXBTC15M: null, KXETH15M: null };
 let windowsCache = null;
 let signalsCache = null;
 let topMarketsCache = null;
+let krakenCache = {}; // tab key -> { ok, stale, at, bids, asks, bidTotal, askTotal, bidPct }
+let krakenTimer = null;
+let polyTimer = null;
+let fngTimer = null;
+let binanceTimer = null;
+let cgTimer = null;
 let wakeStartedAt = Date.now();
 let liveTimer = null;
 let slowTimer = null;
@@ -594,6 +709,11 @@ function agoText(ts) {
   if (s < 5) return "just now";
   if (s < 60) return s + "s ago";
   return Math.floor(s / 60) + "m ago";
+}
+function fmtMMSS(sec) {
+  if (sec === null || sec === undefined || isNaN(sec)) return "—";
+  const s = Math.max(0, Math.round(sec));
+  return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
 }
 function sparklineSVG(candles) {
   if (!candles || candles.length < 2) return "";
@@ -689,6 +809,11 @@ $("logout-btn").addEventListener("click", async () => {
   liveData = null;
   if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
   if (slowTimer) { clearInterval(slowTimer); slowTimer = null; }
+  if (krakenTimer) { clearInterval(krakenTimer); krakenTimer = null; }
+  if (polyTimer) { clearInterval(polyTimer); polyTimer = null; }
+  if (fngTimer) { clearInterval(fngTimer); fngTimer = null; }
+  if (binanceTimer) { clearInterval(binanceTimer); binanceTimer = null; }
+  if (cgTimer) { clearInterval(cgTimer); cgTimer = null; }
   $("app-view").classList.add("hidden");
   $("auth-card").classList.remove("hidden");
   setFeedStatus("Connecting to the live feed…", false);
@@ -746,6 +871,14 @@ async function refresh() {
   await Promise.all([loadCallouts(), refreshLive(), refreshSlow(true)]);
   if (!liveTimer) liveTimer = setInterval(refreshLive, 5000);
   if (!slowTimer) slowTimer = setInterval(() => refreshSlow(false), 60000);
+  pollKraken();
+  if (!krakenTimer) krakenTimer = setInterval(pollKraken, 15000);
+  pollPoly();
+  if (!polyTimer) polyTimer = setInterval(pollPoly, 5000);
+  pollFng(); pollBinance(); pollCg();
+  if (!fngTimer) fngTimer = setInterval(pollFng, 300000);
+  if (!binanceTimer) binanceTimer = setInterval(pollBinance, 60000);
+  if (!cgTimer) cgTimer = setInterval(pollCg, 90000);
 }
 
 /* ---- callouts (VIP only; free sees the locked message) ---- */
@@ -801,6 +934,11 @@ function buildTabs() {
       if (liveData && liveData.top_markets) defs.push(d);
       return;
     }
+    if (d.key === "polymarket") {
+      // Client-side Polymarket feed — no Kalshi market object in /app/live.
+      defs.push(d);
+      return;
+    }
     if (d.key === "gold") {
       if (liveData && liveData.markets && (liveData.markets.gold_15m || liveData.markets.gold)) defs.push(d);
       return;
@@ -809,8 +947,8 @@ function buildTabs() {
   });
   // Starred market tabs sort first (device-only watchlist), keeping Pulse order otherwise.
   defs.sort((a, b) => {
-    const sa = a.key === "top" ? 0 : (starred.includes(a.key) ? 1 : 0);
-    const sb = b.key === "top" ? 0 : (starred.includes(b.key) ? 1 : 0);
+    const sa = (a.key === "top" || a.key === "polymarket") ? 0 : (starred.includes(a.key) ? 1 : 0);
+    const sb = (b.key === "top" || b.key === "polymarket") ? 0 : (starred.includes(b.key) ? 1 : 0);
     return sb - sa;
   });
   tabs = defs;
@@ -826,7 +964,7 @@ function renderTabs() {
     b.setAttribute("role", "tab");
     b.setAttribute("aria-selected", d.key === activeTab ? "true" : "false");
     const starred = getWatchlist().includes(d.key);
-    b.innerHTML = esc(d.label) + (d.key !== "top"
+    b.innerHTML = esc(d.label) + ((d.key !== "top" && d.key !== "polymarket")
       ? '<span class="star-tab' + (starred ? " on" : "") + '" data-star="' + esc(d.key) + '" title="Star this market">★</span>'
       : "") + "<small>" + esc(d.sub) + "</small>";
     const m = marketOf(d);
@@ -891,9 +1029,20 @@ async function refreshLive() {
     $("stale-banner").classList.add("hidden");
     const wake = $("wake-panel");
     if (wake) wake.remove();
-    if (data.not_served_yet && data.not_served_yet.length) {
-      $("not-served-body").textContent = (data.not_served_note || "")
-        + " Not served yet: " + data.not_served_yet.join(", ") + ".";
+    // Broader Market and Polymarket BTC 5m now have their own feeds on this
+    // page (client-side), so both are dropped from the server's not-served
+    // list here; the server list is untouched. When the filtered list is
+    // empty — the case now — the panel stays hidden.
+    const notServed = (data.not_served_yet || []).filter((x) => x !== "Broader Market" && x !== "Polymarket BTC 5m");
+    const nsPanel = $("not-served-panel");
+    if (nsPanel) {
+      if (notServed.length) {
+        nsPanel.classList.remove("hidden");
+        $("not-served-body").textContent = "Not served yet: " + notServed.join(", ")
+          + ". These markets arrive with their own feed later — nothing here stands in for them.";
+      } else {
+        nsPanel.classList.add("hidden");
+      }
     }
     const asOf = (data.markets && data.markets.btc_15m && data.markets.btc_15m.as_of)
       || (data.markets && data.markets.eth_15m && data.markets.eth_15m.as_of);
@@ -1273,6 +1422,477 @@ function imbalanceHTML(m) {
     + '<p class="sig-note">YES ' + yesPct.toFixed(1) + '% · NO ' + (100 - yesPct).toFixed(1) + '% of contracts on the top of the book. Computed in the browser from the live book — it does not feed the signal, and it is parked for Stage 2 backtesting.</p></div>';
 }
 
+/* ---- Kraken spot depth (Kraken public feed, fetched directly) ----
+   Ported from Pulse: same endpoints, same display. Display only — the depth
+   ladder never feeds the signal and never gates anything, and it is a
+   different book from the Kalshi order book above: Kraken spot depth, not
+   Kalshi YES/NO depth, volume, or tape. No key. Polled every 15s for BTC
+   (XBTUSD) and ETH (ETHUSD); only the BTC and ETH tabs render the panel.
+   Failure behaviour, same as Pulse: the first failure shows an unavailable
+   message and nothing is estimated; later failures keep the last good read
+   with an amber warning, never stale numbers presented as live. */
+const KRAKEN_PAIR = { btc_15m: "XBTUSD", eth_15m: "ETHUSD" };
+const KRAKEN_UNIT = { btc_15m: "BTC", eth_15m: "ETH" };
+function fmtDepthSize(n) {
+  return Number(n).toLocaleString("en-US", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+}
+function fmtUsd2(v) {
+  if (v === null || v === undefined || isNaN(v)) return "—";
+  return "$" + Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function parseKrakenBook(bidsRaw, asksRaw) {
+  const parse = (rows) => (Array.isArray(rows) ? rows : []).slice(0, 8).map((r) => ({
+    price: parseFloat(r[0]), size: parseFloat(r[1]),
+  })).filter((r) => isFinite(r.price) && isFinite(r.size));
+  const bids = parse(bidsRaw), asks = parse(asksRaw);
+  if (!bids.length && !asks.length) throw new Error("empty book");
+  let cum = 0;
+  bids.forEach((r) => { cum += r.size; r.total = cum; });
+  const bidTotal = cum;
+  cum = 0;
+  asks.forEach((r) => { cum += r.size; r.total = cum; });
+  const askTotal = cum;
+  const both = bidTotal + askTotal;
+  return {
+    ok: true, stale: false, at: Date.now(), bids: bids, asks: asks,
+    bidTotal: bidTotal, askTotal: askTotal,
+    bidPct: both > 0 ? bidTotal / both * 100 : 50,
+  };
+}
+function krakenDepthBodyHTML(key) {
+  const c = krakenCache[key];
+  const unit = KRAKEN_UNIT[key];
+  if (!c) return '<p class="sig-note">Loading Kraken depth…</p>';
+  if (!c.ok) return '<p class="sig-note">Kraken depth not available right now — Kraken\'s public feed didn\'t answer. This page keeps retrying; nothing is estimated in the meantime.</p>';
+  const bids = c.bids, asks = c.asks;
+  const bidTotal = c.bidTotal, askTotal = c.askTotal, bidPct = c.bidPct;
+  const maxCum = Math.max(bidTotal, askTotal, 0.000001);
+  const col = (side, label, rows) => {
+    let html = '<div><div class="depth-side ' + (side === "bid" ? "bids" : "asks") + '">' + label + ' · TOP 8</div>'
+      + '<div class="depth-head"><span>Price</span><span>Size (' + unit + ')</span><span>Total</span></div>';
+    rows.forEach((r) => {
+      const w = Math.max(3, r.total / maxCum * 100);
+      html += '<div class="depth-row ' + side + '"><span class="bar" style="width:' + w.toFixed(0) + '%"></span>'
+        + '<span class="pr">' + fmtUsd2(r.price) + '</span>'
+        + '<span class="sz">' + fmtDepthSize(r.size) + '</span>'
+        + '<span class="tot">' + fmtDepthSize(r.total) + '</span></div>';
+    });
+    if (!rows.length) html += '<p class="sig-note">No levels on this side right now.</p>';
+    return html + '</div>';
+  };
+  let meta = "";
+  if (bids.length && asks.length) {
+    const spread = asks[0].price - bids[0].price;
+    const mid = (asks[0].price + bids[0].price) / 2;
+    meta = '<div class="depth-meta"><span>Spread <b>' + fmtUsd2(spread) + '</b></span>'
+      + '<span>Mid <b>' + fmtUsd2(mid) + '</b></span>'
+      + '<span>Best bid <b>' + fmtUsd2(bids[0].price) + '</b></span>'
+      + '<span>Best ask <b>' + fmtUsd2(asks[0].price) + '</b></span></div>';
+  }
+  return '<div class="imb-label"><span>Book imbalance · shown levels</span><span>within top 8 each side</span></div>'
+    + '<div class="imb-bar" aria-hidden="true"><div class="b" style="width:' + bidPct.toFixed(1) + '%"></div><div class="a" style="width:' + (100 - bidPct).toFixed(1) + '%"></div></div>'
+    + '<div class="imb-vals"><span class="b">Bids ' + fmtDepthSize(bidTotal) + ' ' + unit + ' · ' + bidPct.toFixed(1) + '%</span>'
+    + '<span class="a">Asks ' + fmtDepthSize(askTotal) + ' ' + unit + ' · ' + (100 - bidPct).toFixed(1) + '%</span></div>'
+    + '<div class="depth-grid">' + col("bid", "Bids", bids) + col("ask", "Asks", asks) + '</div>'
+    + meta;
+}
+function krakenFreshState(key) {
+  const c = krakenCache[key];
+  if (!c || !c.ok) return { text: "", amber: false };
+  if (c.stale) return { text: "Kraken feed didn't answer — showing the last good read · retrying", amber: true };
+  return {
+    text: "Live from Kraken · spot depth · updated "
+      + new Date(c.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" })
+      + " · size in " + KRAKEN_UNIT[key],
+    amber: false,
+  };
+}
+function krakenPanelHTML(def) {
+  const key = def.key;
+  const fr = krakenFreshState(key);
+  return '<div class="panel"><div class="panel-head"><h2 class="panel-title">Kraken depth ladder — spot order book</h2><span class="fresh">Kraken · public feed</span></div>'
+    + '<p class="kraken-note">Spot depth on Kraken for ' + esc(def.label) + '/USD, from Kraken\'s free public feed. This is a different book from the Kalshi order book above — it is not Kalshi depth, volume, or tape.</p>'
+    + '<div id="kraken-body-' + esc(key) + '">' + krakenDepthBodyHTML(key) + '</div>'
+    + '<div class="book-status" id="kraken-fresh-' + esc(key) + '"' + (fr.amber ? ' style="color:var(--amber)"' : '') + '>' + esc(fr.text) + '</div></div>';
+}
+function updateKrakenPanel(key) {
+  const body = document.getElementById("kraken-body-" + key);
+  const fresh = document.getElementById("kraken-fresh-" + key);
+  if (!body && !fresh) return;
+  if (body) body.innerHTML = krakenDepthBodyHTML(key);
+  if (fresh) {
+    const fr = krakenFreshState(key);
+    fresh.style.color = fr.amber ? "var(--amber)" : "";
+    fresh.textContent = fr.text;
+  }
+}
+function fetchKrakenFor(key) {
+  const pair = KRAKEN_PAIR[key];
+  if (!pair) return;
+  const ctrl = ("AbortController" in window) ? new AbortController() : null;
+  let timer = null;
+  if (ctrl) timer = setTimeout(() => { ctrl.abort(); }, 12000);
+  fetch("https://api.kraken.com/0/public/Depth?pair=" + pair + "&count=10", { signal: ctrl ? ctrl.signal : undefined, cache: "no-store" })
+    .then((res) => { if (timer) clearTimeout(timer); if (!res.ok) throw new Error("HTTP " + res.status); return res.json(); })
+    .then((payload) => {
+      if (!payload || (Array.isArray(payload.error) && payload.error.length)) throw new Error("kraken error");
+      const result = payload.result || {};
+      const keys = Object.keys(result);
+      if (!keys.length) throw new Error("empty");
+      const book = result[keys[0]] || {};
+      krakenCache[key] = parseKrakenBook(book.bids, book.asks);
+      updateKrakenPanel(key);
+    })
+    .catch(() => {
+      if (timer) clearTimeout(timer);
+      const prev = krakenCache[key];
+      if (!prev || !prev.ok) {
+        krakenCache[key] = { ok: false, at: Date.now() };
+        updateKrakenPanel(key);
+      } else {
+        prev.stale = true;
+        updateKrakenPanel(key);
+      }
+    });
+}
+function pollKraken() { fetchKrakenFor("btc_15m"); fetchKrakenFor("eth_15m"); }
+
+/* ---- Polymarket BTC 5-minute (Polymarket public feeds, fetched directly) ----
+   Ported from Pulse: same endpoints, same display. Feed-only — NO signal,
+   NO held call, NO track record, and it never feeds the signal. The tab has
+   no Kalshi market object in /app/live, so the pane renders from this
+   client-side feed alone and never touches the shared Kalshi render path.
+   Slug: btc-updown-5m-{floor(Date.now()/1000/300)*300}, recomputed on every
+   poll — a stale slug 404s, so it is never cached across polls. Polled every
+   5s. No key. Failure behaviour, same as the Kraken ladder: the first
+   failure shows an unavailable message and nothing is estimated; later
+   failures keep the last good read with an amber stale warning, never stale
+   numbers presented as live. */
+let polyCache = null; // { ok, stale, at, slug, title, endMs, priceToBeat, upPrice, downPrice, source, bestBid, bestAsk, lastTrade, volume }
+let polyInFlight = false;
+function polySlug() {
+  return "btc-updown-5m-" + (Math.floor(Date.now() / 1000 / 300) * 300);
+}
+function polyCents(p) {
+  if (p === null || p === undefined || isNaN(p)) return "—";
+  const c = Number(p) * 100;
+  if (c > 0 && c < 1) return c.toFixed(1) + "¢";
+  return Math.round(c) + "¢";
+}
+function polyCountdown(endMs) {
+  const rem = Math.max(0, endMs - Date.now());
+  const mm = Math.floor(rem / 60000);
+  const ss = Math.floor((rem % 60000) / 1000);
+  return String(mm).padStart(2, "0") + ":" + String(ss).padStart(2, "0");
+}
+function polyFetchJSON(url, ms) {
+  const ctrl = ("AbortController" in window) ? new AbortController() : null;
+  let timer = null;
+  if (ctrl) timer = setTimeout(() => { ctrl.abort(); }, ms);
+  return fetch(url, { signal: ctrl ? ctrl.signal : undefined, cache: "no-store" })
+    .then((res) => { if (timer) clearTimeout(timer); if (!res.ok) throw new Error("HTTP " + res.status); return res.json(); })
+    .catch((e) => { if (timer) clearTimeout(timer); throw e; });
+}
+function pollPoly() {
+  if (polyInFlight) return Promise.resolve(null);
+  polyInFlight = true;
+  const slug = polySlug();
+  return polyFetchJSON("https://gamma-api.polymarket.com/events/slug/" + slug, 12000)
+    .then((ev) => {
+      const m = ev && Array.isArray(ev.markets) ? ev.markets[0] : null;
+      if (!m) throw new Error("no market");
+      let prices = m.outcomePrices;
+      if (typeof prices === "string") {
+        try { prices = JSON.parse(prices); } catch (e) { prices = null; }
+      }
+      const up = Array.isArray(prices) ? parseFloat(prices[0]) : NaN;
+      const down = Array.isArray(prices) ? parseFloat(prices[1]) : NaN;
+      const meta = ev.eventMetadata || {};
+      const parsedEnd = m.endDate ? new Date(m.endDate).getTime() : NaN;
+      const endMs = isFinite(parsedEnd) ? parsedEnd
+        : (Math.floor(Date.now() / 1000 / 300) * 300 + 300) * 1000;
+      const base = {
+        ok: true, stale: false, at: Date.now(), slug: slug,
+        title: ev.title || m.question || slug,
+        endMs: endMs,
+        priceToBeat: (meta.priceToBeat !== undefined && meta.priceToBeat !== null) ? Number(meta.priceToBeat) : null,
+        bestBid: (m.bestBid !== undefined && m.bestBid !== null) ? Number(m.bestBid) : null,
+        bestAsk: (m.bestAsk !== undefined && m.bestAsk !== null) ? Number(m.bestAsk) : null,
+        lastTrade: (m.lastTradePrice !== undefined && m.lastTradePrice !== null) ? Number(m.lastTradePrice) : null,
+        volume: (m.volume !== undefined && m.volume !== null) ? Number(m.volume) : null,
+      };
+      const tokens = Array.isArray(m.clobTokenIds) ? m.clobTokenIds : [];
+      if (tokens.length >= 2) {
+        return Promise.all([
+          polyFetchJSON("https://clob.polymarket.com/midpoint?token_id=" + encodeURIComponent(tokens[0]), 8000).catch(() => null),
+          polyFetchJSON("https://clob.polymarket.com/midpoint?token_id=" + encodeURIComponent(tokens[1]), 8000).catch(() => null),
+        ]).then((mids) => {
+          const upMid = mids[0] && isFinite(Number(mids[0].mid)) ? Number(mids[0].mid) : NaN;
+          const downMid = mids[1] && isFinite(Number(mids[1].mid)) ? Number(mids[1].mid) : NaN;
+          if (isFinite(upMid) && isFinite(downMid)) {
+            polyCache = Object.assign({}, base, { upPrice: upMid, downPrice: downMid, source: "CLOB midpoint" });
+          } else if (isFinite(up) && isFinite(down)) {
+            polyCache = Object.assign({}, base, { upPrice: up, downPrice: down, source: "Gamma API" });
+          } else {
+            throw new Error("no prices");
+          }
+          updatePolyPanel();
+        });
+      }
+      if (isFinite(up) && isFinite(down)) {
+        polyCache = Object.assign({}, base, { upPrice: up, downPrice: down, source: "Gamma API" });
+        updatePolyPanel();
+        return null;
+      }
+      throw new Error("no prices");
+    })
+    .catch(() => {
+      const prev = polyCache;
+      if (!prev || !prev.ok) {
+        polyCache = { ok: false, at: Date.now() };
+        updatePolyPanel();
+      } else {
+        prev.stale = true;
+        updatePolyPanel();
+      }
+    })
+    .finally(() => { polyInFlight = false; });
+}
+function polyFreshText(c) {
+  if (c.stale) return "Polymarket feed didn't answer — showing the last good read · retrying";
+  return "Live from Polymarket · " + c.source + " · updated "
+    + new Date(c.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" });
+}
+function polyBodyHTML(c) {
+  const upPct = c.upPrice * 100;
+  const downPct = c.downPrice * 100;
+  const cell = (k, v) => '<div class="mini"><div class="k">' + k + '</div><div class="v">' + esc(v) + '</div></div>';
+  return '<p class="muted" style="margin:0 0 4px;font-family:var(--mono);font-size:12.5px;">' + esc(c.slug) + '</p>'
+    + '<h2 style="margin:0 0 6px;font-size:1.15rem;">' + esc(c.title) + '</h2>'
+    + '<div class="poly-count"><span id="poly-countdown">' + polyCountdown(c.endMs) + '</span> left in this 5-minute window</div>'
+    + '<div class="poly-pcts">'
+    + '<div class="poly-pct up"><div class="k">Up</div><div class="v">' + upPct.toFixed(1) + '%</div><div class="s">' + polyCents(c.upPrice) + '</div></div>'
+    + '<div class="poly-pct down"><div class="k">Down</div><div class="v">' + downPct.toFixed(1) + '%</div><div class="s">' + polyCents(c.downPrice) + '</div></div>'
+    + '</div>'
+    + '<div class="splitbar"><div class="yes" style="width:' + upPct.toFixed(1) + '%"></div><div class="no" style="width:' + downPct.toFixed(1) + '%"></div></div>'
+    + '<div class="sig-minis" style="grid-template-columns:repeat(3,1fr);">'
+    + cell("Price to beat", c.priceToBeat !== null ? fmtUsd2(c.priceToBeat) : "—")
+    + cell("Up best bid", polyCents(c.bestBid))
+    + cell("Up best ask", polyCents(c.bestAsk))
+    + cell("Last trade", polyCents(c.lastTrade))
+    + cell("Window volume", bmFmtVol(c.volume))
+    + cell("Price source", c.source)
+    + '</div>'
+    + '<p class="sig-note" style="margin-top:10px;">Up and Down are Polymarket\'s own market prices for this 5-minute window — the market\'s prices, not a Pulse signal. The split bar shows the same Up % as the number above it.</p>';
+}
+function polyPaneHTML() {
+  const c = polyCache;
+  const head = '<div class="panel"><div class="panel-head"><h2 class="panel-title">Polymarket · BTC 5-minute</h2><span class="fresh">Polymarket · public feed</span></div>'
+    + '<p class="sig-note">Feed-only tab — no Pulse signal, no held call, and no track record. This tab shows Polymarket\'s own 5-minute Up/Down market for BTC, as Polymarket prices it. It never feeds the signal.</p>';
+  if (!c) {
+    return head + '<div id="poly-body"><p class="sig-note">Loading the Polymarket 5-minute market…</p></div></div>';
+  }
+  if (!c.ok) {
+    return head + '<div id="poly-body"><p class="sig-note">Polymarket BTC 5-minute not available right now — Polymarket\'s public feed didn\'t answer. This page keeps retrying; nothing is estimated in the meantime.</p></div></div>';
+  }
+  return head + '<div id="poly-body">' + polyBodyHTML(c) + '</div>'
+    + '<div class="book-status" id="poly-fresh"' + (c.stale ? ' style="color:var(--amber)"' : '') + '>' + esc(polyFreshText(c)) + '</div></div>';
+}
+function updatePolyPanel() {
+  if (activeTab !== "polymarket") return;
+  const body = $("poly-body");
+  const fresh = $("poly-fresh");
+  if (!body && !fresh) return;
+  if (body) {
+    if (polyCache && polyCache.ok) body.innerHTML = polyBodyHTML(polyCache);
+    else if (polyCache && !polyCache.ok) body.innerHTML = '<p class="sig-note">Polymarket BTC 5-minute not available right now — Polymarket\'s public feed didn\'t answer. This page keeps retrying; nothing is estimated in the meantime.</p>';
+  }
+  if (fresh) {
+    if (polyCache && polyCache.ok) {
+      fresh.style.color = polyCache.stale ? "var(--amber)" : "";
+      fresh.textContent = polyFreshText(polyCache);
+    } else {
+      fresh.style.color = "";
+      fresh.textContent = "";
+    }
+  }
+}
+
+/* ---- Broader Market: Fear & Greed / Binance.US / CoinGecko ----
+   Ported from Pulse: same endpoints, same display, same poll intervals
+   (Fear & Greed 5 min, Binance.US 60s, CoinGecko 90s). Display only — the
+   boards carry no signal, no held call, and no track record, and none of
+   them feeds the signal. No key. Failure behaviour, same as the Kraken
+   ladder: the first failure shows an unavailable message and nothing is
+   estimated; later failures keep the last good read with an amber stale
+   warning, never stale numbers presented as live. */
+function bmFmtPrice(n) {
+  if (n === null || n === undefined || isNaN(n)) return "—";
+  n = Number(n);
+  if (n >= 1) return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (n >= 0.01) return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+  return "$" + n.toFixed(6);
+}
+function bmFmtPct(v) {
+  if (v === null || v === undefined || isNaN(v)) return "—";
+  v = Number(v);
+  return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(2) + "%";
+}
+function bmFmtVol(n) {
+  if (n === null || n === undefined || isNaN(n)) return "—";
+  n = Number(n);
+  if (n >= 1e9) return "$" + (n / 1e9).toFixed(2) + "B";
+  if (n >= 1e6) return "$" + (n / 1e6).toFixed(2) + "M";
+  if (n >= 1e3) return "$" + (n / 1e3).toFixed(1) + "K";
+  return "$" + Math.round(n).toLocaleString("en-US");
+}
+function bmPctCls(v) { return Number(v) > 0 ? "up" : Number(v) < 0 ? "down" : ""; }
+function bmFreshLine(id, source, stale) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (stale) {
+    el.textContent = source + " feed didn't answer — showing the last good read · retrying";
+    el.style.color = "var(--amber)";
+  } else {
+    el.textContent = "Live from " + source + " · updated "
+      + new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" });
+    el.style.color = "";
+  }
+}
+function bmFail(bodyId, freshId, source, unavailableHTML) {
+  const body = document.getElementById(bodyId);
+  if (!body) return;
+  if (!body.getAttribute("data-ok")) {
+    body.innerHTML = unavailableHTML;
+    const fresh = document.getElementById(freshId);
+    if (fresh) { fresh.textContent = ""; fresh.style.color = ""; }
+  } else {
+    bmFreshLine(freshId, source, true);
+  }
+}
+
+/* Fear & Greed — Alternative.me, free, no key. Updates daily. */
+function renderFng(payload) {
+  const body = $("fngBody");
+  if (!body) return;
+  const rows = payload && Array.isArray(payload.data) ? payload.data : [];
+  if (!rows.length) throw new Error("empty");
+  const now = rows[0], val = parseInt(now.value, 10);
+  if (isNaN(val)) throw new Error("bad value");
+  body.setAttribute("data-ok", "1");
+  const cls = String(now.value_classification || "");
+  const color = val <= 24 ? "var(--down)" : val <= 44 ? "#e85d3d" : val <= 55 ? "var(--amber)" : val <= 74 ? "#7ba23f" : "var(--up)";
+  let yTxt = "";
+  if (rows[1]) {
+    const yv = parseInt(rows[1].value, 10);
+    if (!isNaN(yv)) yTxt = "Yesterday it read <b>" + yv + "</b> (" + esc(rows[1].value_classification || "") + ") — a " +
+      (val === yv ? "hold" : val > yv ? "rise of " + (val - yv) : "fall of " + (yv - val)) + " since then. ";
+  }
+  let updTxt = "";
+  if (now.time_until_update) {
+    const hrs = Math.floor(Number(now.time_until_update) / 3600);
+    if (hrs > 0) updTxt = "Next update in about " + hrs + "h. ";
+  }
+  body.innerHTML =
+    '<div class="spot-label">Fear &amp; Greed Index · 0–100</div>' +
+    '<div class="fng-value" style="color:' + color + '">' + val + "</div>" +
+    '<div class="fng-class" style="color:' + color + '">' + esc(cls) + "</div>" +
+    '<div class="fng-bar" aria-hidden="true"><div class="fng-marker" style="left:' + Math.min(100, Math.max(0, val)) + '%"></div></div>' +
+    '<div class="fng-scale"><span>0 · Extreme fear</span><span>50 · Neutral</span><span>100 · Extreme greed</span></div>' +
+    '<p class="fng-meta">' + yTxt + updTxt + 'The index blends volatility, momentum, social and survey data into one daily mood reading — context, not a signal. Source: Alternative.me Fear &amp; Greed Index.</p>';
+  bmFreshLine("fng-fresh", "Alternative.me", false);
+}
+function pollFng() {
+  fetch("https://api.alternative.me/fng/?limit=2", { cache: "no-store" })
+    .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(renderFng)
+    .catch(() => {
+      bmFail("fngBody", "fng-fresh", "Alternative.me",
+        '<p class="sig-note">Market mood unavailable right now — the Alternative.me feed didn\'t answer. This page keeps retrying; nothing is estimated in the meantime.</p>');
+    });
+}
+
+/* Binance.US — public 24hr tickers, free, no key (US endpoint; binance.com is geo-blocked from the US). */
+const BINANCE_STABLES = { USDT: 1, USDC: 1, BUSD: 1, TUSD: 1, DAI: 1, FDUSD: 1 };
+function binanceClean(rows) {
+  return (Array.isArray(rows) ? rows : []).filter((d) => {
+    const s = String(d.symbol || "");
+    if (s.slice(-3) !== "USD") return false;          // USD-quoted pairs only
+    if (s.slice(-4) === "BUSD") return false;          // BUSD-quoted pairs are stale listings
+    if (!(parseFloat(d.prevClosePrice) > 0)) return false; // 0 prev-close = stale feed row
+    if (BINANCE_STABLES[s.slice(0, -3)]) return false; // stablecoins never "move"
+    return true;
+  });
+}
+function renderBinance(rows) {
+  const body = $("binanceBody");
+  if (!body) return;
+  const clean = binanceClean(rows);
+  if (!clean.length) throw new Error("empty");
+  body.setAttribute("data-ok", "1");
+  const bySym = (sym) => { for (let i = 0; i < clean.length; i++) if (clean[i].symbol === sym) return clean[i]; return null; };
+  const majors = ["BTCUSD", "ETHUSD", "SOLUSD"].map(bySym).filter(Boolean);
+  const majorsHTML = majors.length ? '<div class="majors">' + majors.map((d) => {
+    const pct = parseFloat(d.priceChangePercent);
+    return '<div class="major"><div class="sym">' + esc(d.symbol.slice(0, -3)) + ' · 24H</div>' +
+      '<div class="pr">' + bmFmtPrice(parseFloat(d.lastPrice)) + ' <span class="pct ' + bmPctCls(pct) + '">' + bmFmtPct(pct) + "</span></div>" +
+      '<div class="hl">High ' + bmFmtPrice(parseFloat(d.highPrice)) + ' · Low ' + bmFmtPrice(parseFloat(d.lowPrice)) + '<br/>Vol ' + bmFmtVol(parseFloat(d.quoteVolume)) + "</div></div>";
+  }).join("") + "</div>" : "";
+  const movers = clean.filter((d) => parseFloat(d.quoteVolume) >= 2000)
+    .sort((a, b) => Math.abs(parseFloat(b.priceChangePercent)) - Math.abs(parseFloat(a.priceChangePercent)))
+    .slice(0, 8);
+  let maxAbs = 1;
+  movers.forEach((d) => { const a = Math.abs(parseFloat(d.priceChangePercent)); if (a > maxAbs) maxAbs = a; });
+  const moversHTML = movers.length ? movers.map((d) => {
+    const pct = parseFloat(d.priceChangePercent), cls = bmPctCls(pct);
+    const w = Math.max(5, Math.abs(pct) / maxAbs * 100);
+    return '<div class="mover-row"><span class="mover-sym">' + esc(d.symbol.slice(0, -3)) + "</span>" +
+      '<span class="mover-bar-wrap"><span class="mover-bar ' + cls + '" style="display:block;width:' + w.toFixed(0) + '%"></span></span>' +
+      '<span class="mover-pr">' + bmFmtPrice(parseFloat(d.lastPrice)) + '<br/><span class="mover-vol">vol ' + bmFmtVol(parseFloat(d.quoteVolume)) + "</span></span>" +
+      '<span class="pct ' + cls + '">' + bmFmtPct(pct) + "</span></div>";
+  }).join("") : '<p class="sig-note">No movers with enough 24-hour volume to rank right now.</p>';
+  body.innerHTML = majorsHTML +
+    '<div class="spot-label">Biggest 24h moves · USD pairs · by % change</div>' + moversHTML +
+    '<p class="fng-meta">24-hour stats and movers from the Binance.US public feed (the US endpoint — the global site is geo-blocked from the US). Exchange spot data for context; not a Kalshi market and not a Pulse signal.</p>';
+  bmFreshLine("binance-fresh", "Binance.US", false);
+}
+function pollBinance() {
+  fetch("https://api.binance.us/api/v3/ticker/24hr", { cache: "no-store" })
+    .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(renderBinance)
+    .catch(() => {
+      bmFail("binanceBody", "binance-fresh", "Binance.US",
+        '<p class="sig-note">Binance.US movers unavailable right now — the public feed didn\'t answer. This page keeps retrying; nothing is estimated in the meantime.</p>');
+    });
+}
+
+/* CoinGecko — free public feed, spot-only like gold. */
+const CG_IDS = "solana,ripple,cardano,dogecoin,chainlink,avalanche-2,polkadot,litecoin,near,cosmos";
+function renderCg(coins) {
+  const body = $("cgBody");
+  if (!body) return;
+  if (!Array.isArray(coins) || !coins.length) throw new Error("empty");
+  body.setAttribute("data-ok", "1");
+  body.innerHTML = '<div class="cg-grid">' + coins.map((c) => {
+    const pct = (typeof c.price_change_percentage_24h === "number") ? c.price_change_percentage_24h : null;
+    return '<div class="cg-row"><div><span class="cg-name">' + esc(c.name || "") + '</span> <span class="cg-sym">' +
+      esc(String(c.symbol || "").toUpperCase()) + '</span>' +
+      (c.id === "litecoin" ? ' <span class="cg-sym">· no Kalshi market</span>' : "") + '</div>' +
+      '<span class="cg-pr">' + bmFmtPrice(c.current_price) + '</span>' +
+      '<span class="pct ' + bmPctCls(pct) + '">' + bmFmtPct(pct) + "</span></div>";
+  }).join("") + "</div>";
+  bmFreshLine("cg-fresh", "CoinGecko", false);
+}
+function pollCg() {
+  fetch("https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=" + CG_IDS + "&price_change_percentage=24h", { cache: "no-store" })
+    .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(renderCg)
+    .catch(() => {
+      bmFail("cgBody", "cg-fresh", "CoinGecko",
+        '<p class="sig-note">CoinGecko spot prices unavailable right now — the free feed didn\'t answer (it rate-limits when busy). This page keeps retrying; nothing is estimated in the meantime.</p>');
+    });
+}
+
 /* ---- Confirmation strip: three markers that each vote UP, DOWN or neutral.
    Display only — it never feeds the signal, never gates anything, and never
    changes the call. The count line is a count of how many markers point the
@@ -1281,15 +1901,12 @@ function imbalanceHTML(m) {
    ENTER floor; below it there is no call and the marker is neutral.
    Marker 2 — Kalshi book: the same book-imbalance number the book panel
    shows (55/45 rule). YES heavier = UP lean, NO heavier = DOWN lean.
-   Marker 3 — Trend: the 1m closes the line-moved panel already draws. Last
-   close above the first close inside this window = UP, below = DOWN, flat
-   or fewer than 2 closes = neutral.
-   NOTE — why trend, not Kraken depth: this viewer never had a Kraken depth
-   panel, and neither the API nor the local tracker serves Kraken depth, so
-   there was no depth number to reuse. A Kraken fetch would be new data the
-   strip is not allowed to invent. The trend uses only the /candles the page
-   already fetches. If the API serves Kraken depth later, marker 3 can be
-   swapped for it in one place (trendVote). */
+   Marker 3 — Kraken depth: the spot depth the Kraken depth ladder below
+   reads from Kraken's public feed. The depth bar itself has no threshold —
+   Pulse shows the split as it is — so this marker applies the strip's own
+   55/45 vote rule, matching the Kalshi book marker's rule: bids at 55% or
+   more of the top-8 depth lean UP, at 45% or less lean DOWN, between is
+   neutral. No spot depth loaded yet is neutral, never a guess. */
 function signalVote(m) {
   const sig = m.signal;
   if (!sig || (sig.direction !== "UP" && sig.direction !== "DOWN")) return { vote: null, note: "No call — below the 60% floor" };
@@ -1303,15 +1920,13 @@ function bookVote(m) {
   if (yesPct <= 45) return { vote: "DOWN", note: "NO " + (100 - yesPct).toFixed(1) + "% of the book" };
   return { vote: null, note: "Balanced — YES " + yesPct.toFixed(1) + "%" };
 }
-async function trendVote(def, m) {
-  const candles = await ensureCandles(def.series);
-  const b = windowBounds(def, m);
-  const inWin = candlesInWindow(candles, b.open, b.close);
-  if (inWin.length < 2) return { vote: null, note: "Not enough closes yet" };
-  const first = inWin[0].c, last = inWin[inWin.length - 1].c;
-  if (last > first) return { vote: "UP", note: "Closes rising in-window" };
-  if (last < first) return { vote: "DOWN", note: "Closes falling in-window" };
-  return { vote: null, note: "Flat in-window" };
+function depthVote(def) {
+  const c = krakenCache[def.key];
+  if (!c || !c.ok) return { vote: null, note: "No spot depth yet" };
+  const bidPct = c.bidPct;
+  if (bidPct >= 55) return { vote: "UP", note: "Bids " + bidPct.toFixed(1) + "% of spot depth" };
+  if (bidPct <= 45) return { vote: "DOWN", note: "Asks " + (100 - bidPct).toFixed(1) + "% of spot depth" };
+  return { vote: null, note: "Balanced — bids " + bidPct.toFixed(1) + "%" };
 }
 function confirmMarkerCell(label, v) {
   const cls = v.vote === "UP" ? "up" : v.vote === "DOWN" ? "down" : "neutral";
@@ -1326,8 +1941,8 @@ async function confirmStripHTML(def, m) {
   if (!def.signal || !m.signal) return "";
   const sv = signalVote(m);
   const bv = bookVote(m);
-  const tv = await trendVote(def, m);
-  const votes = [sv.vote, bv.vote, tv.vote];
+  const dv = depthVote(def);
+  const votes = [sv.vote, bv.vote, dv.vote];
   const up = votes.filter(v => v === "UP").length;
   const down = votes.filter(v => v === "DOWN").length;
   let countHtml, stripCls = "";
@@ -1339,7 +1954,7 @@ async function confirmStripHTML(def, m) {
   else { countHtml = '<div class="confirm-count">No marker leans either way</div>'; }
   return '<div class="panel confirm-strip' + stripCls + '"><div class="panel-head"><h2 class="panel-title">Confirmation — 3 markers</h2><span class="fresh">display only</span></div>'
     + countHtml
-    + '<div class="confirm-markers">' + confirmMarkerCell("Signal", sv) + confirmMarkerCell("Kalshi book", bv) + confirmMarkerCell("Trend", tv) + '</div>'
+    + '<div class="confirm-markers">' + confirmMarkerCell("Signal", sv) + confirmMarkerCell("Kalshi book", bv) + confirmMarkerCell("Kraken depth", dv) + '</div>'
     + '<p class="sig-note" style="margin-top:10px;">A count of how many of the three markers point the same way — not a guarantee, and it never changes the signal. A split is the honest warning: the markers disagree.</p></div>';
 }
 
@@ -1409,16 +2024,90 @@ function reasoningHTML(series) {
     + list.map(s => '<div class="entry"><span class="meta">' + esc(fmtTimeET(s.time)) + ' · min ' + esc(s.minute) + '</span><br>Based on: ' + esc(s.reason) + '. Window ' + esc(s.window) + '.</div>').join("")
     + '</div>';
 }
+/* ---- Gold daily market (inside the Gold tab — no separate tab, same as
+   Pulse's renderGold / goldBookHTML). Reads the `gold` object from
+   /app/live, which is the same live_gold_payload() /live/all serves:
+   spot + the open daily KXGOLD market and its Kalshi book, when one is
+   open. Feed-only: the daily market carries no signal, no gauge and no
+   track record, and it never feeds the signal. No money anywhere —
+   spot/strike are market data, as Pulse shows them. A missing or stale
+   gold object shows "not available right now" instead of invented
+   numbers; a fresh object with no market open shows the server's
+   market_note verbatim. */
+function goldStale(g) {
+  if (!g) return true;
+  if (g.spot_age_seconds !== null && g.spot_age_seconds !== undefined) {
+    return g.spot_age_seconds > 600;
+  }
+  if (g.as_of) {
+    try { return (Date.now() - new Date(g.as_of).getTime()) > 600000; } catch (e) { return false; }
+  }
+  return false;
+}
 function goldPanelsHTML() {
   const g = dailyGold();
-  if (!g) return "";
-  const spot = fmtUsd(g.spot_usd, g.spot_usd);
-  return '<div class="panel"><div class="panel-head"><h2 class="panel-title">Gold spot</h2></div>'
-    + '<p class="muted" style="margin:0 0 4px;">Gold · USD per ounce</p>'
-    + '<div class="big-price">' + esc(spot) + '</div>'
-    + '<p class="sig-note">Spot updated ' + esc(g.as_of ? agoText(new Date(g.as_of).getTime()) : "—") + '.</p></div>'
-    + '<div class="panel"><div class="panel-head"><h2 class="panel-title">Gold daily market</h2></div>'
-    + '<p class="sig-note">' + esc(g.signal_note || "The daily market's strike and expiry aren't served in this API yet — this tab shows the live spot and the 15-minute window above.") + '</p></div>';
+  if (!g || goldStale(g)) {
+    return '<div class="panel"><div class="panel-head"><h2 class="panel-title">Gold spot</h2></div>'
+      + '<p class="sig-note">Gold spot not available right now.</p></div>'
+      + '<div class="panel"><div class="panel-head"><h2 class="panel-title">Gold daily market</h2></div>'
+      + '<p class="sig-note">Gold daily market not available right now.</p></div>'
+      + '<div class="panel"><div class="panel-head"><h2 class="panel-title">Gold daily signal</h2><span class="badge">Unvalidated</span></div>'
+      + '<p class="sig-note">No gold signal yet.</p></div>';
+  }
+  const spot = g.spot_usd;
+  const spotAge = (g.spot_age_seconds !== null && g.spot_age_seconds !== undefined)
+    ? "spot " + Math.max(0, Math.round(g.spot_age_seconds)) + "s old"
+    : (g.as_of ? "Spot updated " + agoText(new Date(g.as_of).getTime()) : "Spot age unknown");
+  const spotSrc = g.spot_source ? "Live spot from " + g.spot_source + "." : "";
+  let html = '<div class="panel"><div class="panel-head"><h2 class="panel-title">Gold spot</h2></div>'
+    + '<p class="muted" style="margin:0 0 4px;">Gold · USD per ounce</p>';
+  if (spot === null || spot === undefined) {
+    html += '<p class="sig-note">Gold spot not available right now.</p></div>';
+  } else {
+    html += '<div class="big-price">' + esc(fmtUsd(spot, spot)) + '</div>'
+      + '<p class="sig-note">' + esc(spotAge) + '.</p>'
+      + (spotSrc ? '<p class="sig-note">' + esc(spotSrc) + '</p>' : '')
+      + '</div>';
+  }
+  const mk = g.market || {};
+  const strike = (mk.strike_usd !== undefined && mk.strike_usd !== null) ? mk.strike_usd : mk.strike;
+  const closesIn = (mk.closes_in_seconds !== undefined && mk.closes_in_seconds !== null) ? mk.closes_in_seconds
+    : (mk.expires_in_seconds !== undefined && mk.expires_in_seconds !== null ? mk.expires_in_seconds
+    : (mk.close_ts ? Math.max(0, Math.round(mk.close_ts - Date.now() / 1000)) : null));
+  let vs = (mk.spot_vs_strike_usd !== undefined && mk.spot_vs_strike_usd !== null) ? mk.spot_vs_strike_usd
+    : (g.spot_vs_strike_usd !== undefined && g.spot_vs_strike_usd !== null ? g.spot_vs_strike_usd : null);
+  if ((vs === null || vs === undefined) && spot !== null && spot !== undefined && strike !== null && strike !== undefined) {
+    vs = Math.round((spot - strike) * 100) / 100;
+  }
+  const book = g.kalshi_book || {};
+  const hasBook = book.yes_bid_cents !== undefined || book.yes_ask_cents !== undefined
+    || book.no_bid_cents !== undefined || book.no_ask_cents !== undefined;
+  html += '<div class="panel"><div class="panel-head"><h2 class="panel-title">Gold daily market</h2>'
+    + (book.status ? '<span class="fresh">' + esc(book.status) + '</span>' : '') + '</div>';
+  if (!g.market) {
+    html += '<p class="sig-note">' + esc(g.market_note || "No gold market open right now.") + '</p>';
+  } else {
+    html += '<p class="sig-note" style="margin-top:0;"><strong>' + esc(mk.ticker || "") + '</strong>'
+      + (mk.question ? ' — ' + esc(mk.question) : '') + '</p>'
+      + '<div class="lm-stats">'
+      + '<div class="lm-stat"><div class="k">Closes in</div><div class="v">' + esc(fmtMMSS(closesIn)) + '</div></div>'
+      + '<div class="lm-stat"><div class="k">Strike</div><div class="v">' + esc(strike !== null && strike !== undefined ? fmtUsd(strike, spot) : "—") + '</div></div>'
+      + '<div class="lm-stat"><div class="k">Spot vs strike</div><div class="v ' + ((vs === null || vs === undefined) ? "" : (vs >= 0 ? "up" : "down")) + '">' + esc(vs === null || vs === undefined ? "—" : (vs >= 0 ? "+$" : "-$") + Math.abs(vs).toFixed(2)) + '</div></div>'
+      + '</div>';
+    if (hasBook) {
+      const cell = (k, v) => '<div class="mini"><div class="k">' + k + '</div><div class="v">' + esc(v === undefined || v === null ? "—" : v + "¢") + '</div></div>';
+      html += '<div class="sig-minis" style="grid-template-columns:repeat(2,1fr);">'
+        + cell("YES bid", book.yes_bid_cents) + cell("YES ask", book.yes_ask_cents)
+        + cell("NO bid", book.no_bid_cents) + cell("NO ask", book.no_ask_cents)
+        + '</div>';
+    }
+  }
+  html += '<p class="sig-note">Feed-only — this daily market carries no signal and no track record. It shows the live spot and the market\u2019s own price.</p></div>';
+  html += '<div class="panel"><div class="panel-head"><h2 class="panel-title">Gold daily signal</h2><span class="badge">Unvalidated</span></div>'
+    + '<p class="sig-note">' + esc(g.signal_note || "No gold signal yet.") + '</p></div>';
+  const ladder = bookHTML({ kalshi_book: book });
+  if (ladder) html += ladder;
+  return html;
 }
 function topMarketsHTML() {
   const tm = (liveData && liveData.top_markets) || topMarketsCache;
@@ -1551,6 +2240,13 @@ async function renderPane(key) {
     host.innerHTML = topMarketsHTML();
     return;
   }
+  if (key === "polymarket") {
+    // No Kalshi market object in /app/live — renders from the client-side
+    // Polymarket feed alone; never touches the shared Kalshi render path.
+    host.innerHTML = polyPaneHTML();
+    if (!polyCache) pollPoly();
+    return;
+  }
   const def = tabs.find(t => t.key === key) || tabs[0];
   if (!def) { host.innerHTML = '<div class="panel"><p class="sig-note">No live windows right now.</p></div>'; return; }
   const m = marketOf(def);
@@ -1566,6 +2262,7 @@ async function renderPane(key) {
     html += await tapeHTML(def);
     html += '<div class="dash dash-low">' + bookHTML(m) + levelsHTML(m) + '</div>';
     html += imbalanceHTML(m);
+    html += krakenPanelHTML(def);
     html += trackRecordHTML(def.series, true);
     html += entryLogHTML(def.series);
     html += settledChipsHTML(def.series);
