@@ -305,6 +305,12 @@
   .tr-cell { background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: 8px; padding: 12px 8px; }
   .tr-cell .v { font-family: var(--mono); font-size: 26px; font-weight: 800; }
   .tr-cell .k { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-faint); margin-top: 2px; }
+  /* Today panel */
+  .today-cells { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; text-align: center; }
+  @media (max-width: 640px) { .today-cells { grid-template-columns: repeat(2, 1fr); } }
+  .today-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; padding: 9px 0; border-top: 1px solid var(--line-soft); font-size: 13.5px; }
+  .today-row .mkt { font-weight: 700; }
+  .today-row .nums { font-family: var(--mono); font-size: 12.5px; color: var(--ink-dim); text-align: right; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
   .chip {
     font-family: var(--mono); font-size: 11px; font-weight: 700; text-transform: uppercase;
@@ -462,6 +468,11 @@
     </div>
 
     <div class="panel">
+      <div class="panel-head"><h2 class="panel-title">Today</h2><span class="fresh" id="today-date">—</span></div>
+      <div id="today-body" class="muted">Loading…</div>
+    </div>
+
+    <div class="panel">
       <div class="panel-head"><h2 class="panel-title">Daily results note</h2><span class="fresh">UNVALIDATED</span></div>
       <div id="results-body" class="muted">Loading…</div>
     </div>
@@ -526,6 +537,7 @@ let lastAbove = {};  // key -> boolean (for flip flash)
 let candlesCache = {};
 let recordsCache = {};
 let entriesCache = null;
+let todayCache = { KXBTC15M: null, KXETH15M: null };
 let windowsCache = null;
 let signalsCache = null;
 let topMarketsCache = null;
@@ -890,12 +902,18 @@ async function refreshSlow(first) {
   jobs.push(api("/track-record?series=KXBTC15M").then(d => { recordsCache.KXBTC15M = d; }).catch(() => {}));
   jobs.push(api("/track-record?series=KXETH15M").then(d => { recordsCache.KXETH15M = d; }).catch(() => {}));
   jobs.push(api("/entries?limit=50").then(d => { entriesCache = d || []; }).catch(() => {}));
+  // Today panel: one fetch per series at the endpoint's max (200). A series
+  // can produce at most 96 windows x 2 directions = 192 rows a day, so 200
+  // always covers the full day; the entry log's limit=50 fetch stays as-is.
+  jobs.push(api("/entries?limit=200&series=KXBTC15M").then(d => { todayCache.KXBTC15M = d || []; }).catch(() => {}));
+  jobs.push(api("/entries?limit=200&series=KXETH15M").then(d => { todayCache.KXETH15M = d || []; }).catch(() => {}));
   jobs.push(api("/windows?limit=10").then(d => { windowsCache = d || []; }).catch(() => {}));
   jobs.push(api("/signals?limit=20").then(d => { signalsCache = d || []; }).catch(() => {}));
   if (!topMarketsCache && liveData && !liveData.top_markets) {
     jobs.push(fetch("/top-markets", { credentials: "same-origin" }).then(r => r.json()).then(d => { topMarketsCache = d; }).catch(() => {}));
   }
   await Promise.all(jobs);
+  renderToday();
   if (liveData) renderPane(activeTab);
   if (first) loadResults();
 }
@@ -1326,6 +1344,82 @@ function topMarketsHTML() {
     + '<p class="sig-note" style="margin-top:10px;">Ranked across the tracked liquid series only.</p></div>'
     + '<div class="panel"><div class="panel-head"><h2 class="panel-title">Pulse signal on Top Markets</h2></div>'
     + '<p class="sig-note">None — this board is display only. It ranks Kalshi markets by 24h volume; it carries no signal.</p></div>';
+}
+/* ---- Today panel: settled calls so far today (America/New_York), from the
+   entry log. One row per (window, direction) as /entries returns them; only
+   settled rows (win/loss) count. No money anywhere — counts and win rate. */
+const ET_DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
+function etDayKey(iso) {
+  try {
+    const p = {};
+    ET_DAY.formatToParts(new Date(iso)).forEach(x => { p[x.type] = x.value; });
+    return p.year + "-" + p.month + "-" + p.day;
+  } catch (e) { return ""; }
+}
+function todayDateLabel() {
+  try {
+    return new Date().toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" }) + " · ET";
+  } catch (e) { return "ET"; }
+}
+function streakOf(rows) {
+  const ordered = rows.slice().sort((a, b) => {
+    const ta = Date.parse(a.closed || a.opened || 0), tb = Date.parse(b.closed || b.opened || 0);
+    if (ta !== tb) return ta - tb;
+    return String(a.window || "").localeCompare(String(b.window || ""));
+  });
+  if (!ordered.length) return null;
+  const last = ordered[ordered.length - 1].outcome;
+  let n = 0;
+  for (let i = ordered.length - 1; i >= 0 && ordered[i].outcome === last; i--) n++;
+  return { outcome: last, count: n };
+}
+function streakText(st) {
+  if (!st) return "—";
+  const noun = st.outcome === "win" ? (st.count === 1 ? "win" : "wins") : (st.count === 1 ? "loss" : "losses");
+  return st.count + " " + noun + " in a row";
+}
+function renderToday() {
+  const body = $("today-body");
+  const dateEl = $("today-date");
+  if (dateEl) dateEl.textContent = todayDateLabel();
+  if (!body) return;
+  if (todayCache.KXBTC15M === null && todayCache.KXETH15M === null) {
+    body.innerHTML = '<p class="sig-note" style="margin:0;">Today\u2019s numbers are unavailable right now — the feed will retry.</p>';
+    return;
+  }
+  const todayKey = etDayKey(new Date().toISOString());
+  const all = (todayCache.KXBTC15M || []).concat(todayCache.KXETH15M || []);
+  const settled = all.filter(r => (r.outcome === "win" || r.outcome === "loss")
+    && etDayKey(r.closed || r.opened) === todayKey);
+  if (!settled.length) {
+    body.innerHTML = '<p class="sig-note" style="margin:0;">No settled windows yet today.</p>';
+    return;
+  }
+  const wins = settled.filter(r => r.outcome === "win").length;
+  const losses = settled.length - wins;
+  const wr = Math.round(100 * wins / settled.length) + "%";
+  const st = streakOf(settled);
+  let html = '<div class="today-cells">'
+    + '<div class="tr-cell"><div class="v">' + settled.length + '</div><div class="k">Settled today</div></div>'
+    + '<div class="tr-cell"><div class="v">' + wins + '</div><div class="k">Wins</div></div>'
+    + '<div class="tr-cell"><div class="v">' + losses + '</div><div class="k">Losses</div></div>'
+    + '<div class="tr-cell"><div class="v">' + wr + '</div><div class="k">Win rate</div></div></div>'
+    + '<p class="sig-note" style="margin:12px 0 0;">Streak — <span class="outcome ' + (st.outcome === "win" ? "win" : "loss") + '">' + esc(streakText(st)) + '</span></p>';
+  [["BTC", "KXBTC15M"], ["ETH", "KXETH15M"]].forEach(([label, series]) => {
+    const rows = settled.filter(r => r.series === series);
+    if (!rows.length) {
+      html += '<div class="today-row"><span class="mkt">' + label + '</span><span class="nums">no settled windows yet today</span></div>';
+      return;
+    }
+    const w = rows.filter(r => r.outcome === "win").length;
+    const l = rows.length - w;
+    const pct = Math.round(100 * w / rows.length) + "%";
+    html += '<div class="today-row"><span class="mkt">' + label + '</span><span class="nums">'
+      + rows.length + ' settled · ' + w + ' ' + (w === 1 ? "win" : "wins") + ' · ' + l + ' ' + (l === 1 ? "loss" : "losses") + ' · ' + pct
+      + ' · streak ' + esc(streakText(streakOf(rows))) + '</span></div>';
+  });
+  html += '<p class="sig-note" style="margin:10px 0 0;">From the entry log — one row per call, wins and losses. UNVALIDATED.</p>';
+  body.innerHTML = html;
 }
 async function loadResults() {
   const body = $("results-body");
