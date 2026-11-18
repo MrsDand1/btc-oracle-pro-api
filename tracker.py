@@ -15,14 +15,21 @@ KXSILVER15M, added 2026-11-17) are feed-only the same way — no signal,
 no track-record writes, no ledger. GET /top-markets ranks the most-traded
 Kalshi markets by public 24h volume (display only, no signal).
 
-Data reality (verified Nov 16, 2026; corrected the same day):
+Data reality (verified Nov 16, 2026; corrected Nov 18, 2026):
 - Kalshi's public REST API returns the live window (ticker, close time).
-  Market snapshots are all null (no volume, no last price), BUT the
-  per-market orderbook endpoint DOES return live bids in `orderbook_fp`
+  The per-market orderbook endpoint DOES return live bids in `orderbook_fp`
   (yes_dollars/no_dollars bid ladders; YES ask = 1 - NO bid). The
   earlier "orderbooks are empty" finding read the legacy `yes`/`no`
-  keys Kalshi removed on 2026-03-12. Live book prices need no key;
-  volume and the live trade tape do (WebSocket, API key).
+  keys Kalshi removed on 2026-03-12.
+- CORRECTION (verified keyless 2026-11-18, single spaced calls): the
+  /markets rows are NOT null snapshots — the live KXBTC15M row carries
+  volume_24h_fp, volume_fp, open_interest_fp, last_price_dollars, YES/NO
+  bid+ask dollars and sizes, and floor_strike (the market's own strike).
+  The public tape endpoint GET /markets/trades?ticker=... ALSO works
+  keyless (HTTP 200). Settled rows add result, expiration_value (the
+  BRTI settlement average) and settlement_ts. previous_price_dollars
+  exists but read '0.0000' on every sample. See parse_kalshi_market_extras
+  / record_kalshi_window_extras: display/diagnostics only, never signal.
 - Target price = the 60-second average of spot in the minute before the
   window opens. That is how the market's strike is defined. If the
   service starts mid-window and missed that minute, the target is marked
@@ -70,6 +77,16 @@ Data reality (verified Nov 16, 2026; corrected the same day):
   no advice. The unfiltered /markets list cannot be ranked in one call:
   it is flooded with 40,000+ zero-volume combo markets, so the ranking
   covers the named series pool in the response, not the whole exchange.
+- Extra spot sources (added 2026-11-18, piece 2 — display/diagnostic
+  only, never an input to the signal or the track record): Binance.US
+  BTCUSD spot (api.binance.us/api/v3/ticker/price?symbol=BTCUSD,
+  public, no key, polled every 60s, stored in
+  binanceus_spot_samples) and the Kraken BTC mid-price, derived from
+  the Kraken depth feed the viewer already polls every 15s
+  (api.kraken.com/0/public/Depth) — the server never fetches Kraken,
+  so no new Kraken request exists anywhere. A cross-exchange
+  consensus check compares Coinbase spot vs Kraken mid vs Binance.US
+  spot and flags a >0.20% spread as a diagnostic only.
 - Durable history (added 2026-11-17): the SQLite history (windows,
   signals, spot samples) lives in a Turso free database when
   TURSO_DATABASE_URL + TURSO_AUTH_TOKEN are set, and in the local
@@ -147,6 +164,13 @@ KALSHI_ETH_MARKETS = (
     "?series_ticker=KXETH15M&limit=5&status=open"
 )
 KALSHI_ORDERBOOK = "https://api.elections.kalshi.com/trade-api/v2/markets"
+# Kalshi extras (piece 3, verified keyless 2026-11-18): the public tape
+# is GET /markets/trades?ticker={ticker}&limit={n} — NOT
+# /markets/{ticker}/trades. One page, newest first, no key, no signature.
+KALSHI_TRADES = (
+    "https://api.elections.kalshi.com/trade-api/v2/markets/trades"
+)
+KALSHI_EXTRAS_SERIES = "KXBTC15M"  # settle-time tape fetch: BTC only
 KALSHI_GOLD_MARKETS = (
     "https://api.elections.kalshi.com/trade-api/v2/markets"
     "?series_ticker=KXGOLD&limit=10&status=open"
@@ -537,6 +561,30 @@ def _track_record_counts(conn, series):
     return (row[0] or 0, row[1] or 0)
 
 
+_KALSHI_WINDOW_COLUMNS = (
+    ("strike_usd", "REAL"),
+    ("volume_24h", "REAL"),
+    ("open_interest", "REAL"),
+    ("last_price_cents", "REAL"),
+    ("market_result", "TEXT"),
+    ("expiration_value", "REAL"),
+)
+
+
+def _migrate_kalshi_extras(conn):
+    """Add the Kalshi-extras columns to a pre-existing windows table.
+
+    Fresh databases get the columns from the CREATE TABLE above; a
+    database created before this piece keeps working because each
+    ALTER is attempted and duplicate-column errors are ignored.
+    Never raises."""
+    for name, kind in _KALSHI_WINDOW_COLUMNS:
+        try:
+            conn.execute(f"ALTER TABLE windows ADD COLUMN {name} {kind}")
+        except Exception:
+            pass
+
+
 def _init_db_once():
     """Create tables + indexes if missing. Returns True on success."""
     try:
@@ -551,10 +599,30 @@ def _init_db_once():
             CREATE TABLE IF NOT EXISTS doge_spot_samples (ts REAL PRIMARY KEY, price REAL);
             CREATE TABLE IF NOT EXISTS bnb_spot_samples (ts REAL PRIMARY KEY, price REAL);
             CREATE TABLE IF NOT EXISTS silver_spot_samples (ts REAL PRIMARY KEY, price REAL);
+            CREATE TABLE IF NOT EXISTS binanceus_spot_samples (ts REAL PRIMARY KEY, price REAL);
             CREATE TABLE IF NOT EXISTS windows (
                 ticker TEXT PRIMARY KEY, open_ts REAL, close_ts REAL,
                 target REAL, target_provisional INTEGER,
-                resolution TEXT, resolved_at REAL
+                resolution TEXT, resolved_at REAL,
+                strike_usd REAL, volume_24h REAL, open_interest REAL,
+                last_price_cents REAL, market_result TEXT,
+                expiration_value REAL
+            );
+            CREATE TABLE IF NOT EXISTS kalshi_window_extras (
+                ticker TEXT PRIMARY KEY, settled_at REAL,
+                volume_total REAL, volume_24h REAL, open_interest REAL,
+                last_price_cents REAL, market_result TEXT,
+                expiration_value REAL, settlement_ts TEXT,
+                trades_sample_n INTEGER,
+                trades_sample_contracts REAL,
+                trades_sample_yes_contracts REAL,
+                trades_sample_no_contracts REAL,
+                trades_sample_yes_vwap_cents REAL,
+                trades_sample_last_price_cents REAL,
+                trades_sample_newest_ts TEXT,
+                trades_sample_oldest_ts TEXT,
+                trades_sample_block_count INTEGER,
+                fetched_at REAL
             );
             CREATE TABLE IF NOT EXISTS signals (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, window TEXT, ts REAL,
@@ -572,6 +640,10 @@ def _init_db_once():
                 ON windows(close_ts);
             """
         )
+        # Kalshi extras (piece 3): backfill the new windows columns on
+        # a database created before they existed. Fresh databases
+        # already have them from the CREATE TABLE above.
+        _migrate_kalshi_extras(conn)
         # Accounts + VIP gate tables (added 2026-11-17): auth owns the
         # schema (AUTH_SCHEMA_SQL in auth.py) so the tables are created
         # identically on both backends. Nothing about the existing
@@ -671,6 +743,8 @@ _state = {
     "levels_ts": None,
     "book": None,            # {yes_bid_cents, yes_ask_cents, no_bid_cents, no_ask_cents}
     "book_ts": None,
+    "kalshi_extras": None,     # latest parsed /markets extras (KXBTC15M)
+    "kalshi_extras_ts": None,
     "eth_spot": None,
     "eth_spot_ts": None,
     "eth_window": None,
@@ -765,6 +839,13 @@ _state = {
     "gold_market_ts": None,
     "gold_book": None,
     "gold_book_ts": None,
+    "binanceus_spot": None,  # Binance.US BTCUSD spot (extra-spot, display only)
+    "binanceus_spot_ts": None,
+    "binanceus_spot_try_ts": None,
+    "kraken_mid": None,      # always None server-side: the Kraken mid is
+    "kraken_mid_ts": None,   # derived in the viewer from its already-polled depth feed
+    "extra_spot_consensus": None,
+    "extra_spot_diverged": False,
     "started_at": time.time(),
     "poll_last_ok": None,
     "errors": [],
@@ -810,6 +891,11 @@ def current_window(url, window_secs, tag):
                 "ticker": m["ticker"],
                 "open_ts": close_ts - window_secs,
                 "close_ts": close_ts,
+                # Kalshi extras (piece 3): the chosen row's verified
+                # fields, parsed here so the rollover INSERT can store
+                # them with zero extra Kalshi calls and zero extra
+                # writes. Display/diagnostics only — never signal.
+                "extras": parse_kalshi_market_extras(m),
             }
     return best
 
@@ -852,6 +938,232 @@ def fetch_book(ticker):
             "yes_ladder": top_ladder(yes),
             "no_ladder": top_ladder(no),
         }
+    except Exception:
+        return None
+
+
+# ------------------------------------------------- Kalshi extras (piece 3)
+# Verified keyless 2026-11-18 (single spaced calls, api.elections host):
+# - /markets rows carry volume_24h_fp, volume_fp, open_interest_fp,
+#   last_price_dollars, yes/no bid+ask dollars and sizes, floor_strike
+#   (the market's own strike), and — once settled — result,
+#   expiration_value (the BRTI settlement average) and settlement_ts.
+#   previous_price_dollars exists but read '0.0000' on every sample.
+# - /markets/trades?ticker=...&limit=N works keyless (HTTP 200): the
+#   live public tape, newest first. WebSocket is NOT needed for a
+#   settle-time sample. One page only — never paginated in the poll loop.
+# Display/diagnostics ONLY: nothing here feeds the v1 signal, the
+# windows resolution, or track_record_summary. Storage is one row per
+# settled BTC window (plus the same rollover INSERT's new columns), so
+# the extra write load is 2 rows x 4 windows/hour = 5,760/month —
+# 0.36% of the ~1.6M/month free-tier headroom. The settle-time
+# snapshot adds 2 Kalshi calls per settled BTC window (settled-row
+# fetch + one tape page: 8/hour, at rollover only); no existing
+# poll frequency changes.
+
+
+def _extras_float(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_kalshi_market_extras(m):
+    """Verified-available fields off one /markets row (open or settled).
+
+    Pure parsing — no network, never raises. All money strings are
+    Kalshi fixed-point dollar strings ('0.6700'); volumes/OI are
+    '_fp' contract strings. Missing/unparseable fields become None,
+    never 0 (0 would read as a real price/volume)."""
+    if not isinstance(m, dict):
+        return {}
+
+    def cents(key):
+        v = _extras_float(m.get(key))
+        return round(v * 100, 1) if v is not None else None
+
+    return {
+        "strike_usd": _extras_float(m.get("floor_strike")),
+        "volume_24h": _extras_float(m.get("volume_24h_fp")),
+        "volume_total": _extras_float(m.get("volume_fp")),
+        "open_interest": _extras_float(m.get("open_interest_fp")),
+        "last_price_cents": cents("last_price_dollars"),
+        "previous_price_cents": cents("previous_price_dollars"),
+        "yes_bid_cents": cents("yes_bid_dollars"),
+        "yes_ask_cents": cents("yes_ask_dollars"),
+        "no_bid_cents": cents("no_bid_dollars"),
+        "no_ask_cents": cents("no_ask_dollars"),
+        "yes_bid_size": _extras_float(m.get("yes_bid_size_fp")),
+        "yes_ask_size": _extras_float(m.get("yes_ask_size_fp")),
+        "status": m.get("status"),
+        "market_result": m.get("result") or None,
+        "expiration_value": _extras_float(m.get("expiration_value")),
+        "settlement_ts": m.get("settlement_ts"),
+    }
+
+
+def parse_kalshi_trades(trades):
+    """Aggregate ONE page of /markets/trades rows (newest first).
+
+    Returns a labelled SAMPLE aggregate — the page holds the most
+    recent trades at fetch time, never the full window tape. Counts
+    and contract totals are exact for the page; VWAP is
+    contract-weighted on the taker side's yes price. Never raises;
+    empty/None input yields n=0 with every other field None/0."""
+    rows = trades if isinstance(trades, list) else []
+    total = yes_c = no_c = 0.0
+    yes_notional = 0.0
+    blocks = 0
+    last_price = None
+    newest_ts = None
+    oldest_ts = None
+    for t in rows:
+        if not isinstance(t, dict):
+            continue
+        count = _extras_float(t.get("count_fp")) or 0.0
+        total += count
+        side = t.get("taker_side")
+        if side == "yes":
+            yes_c += count
+            p = _extras_float(t.get("yes_price_dollars"))
+            if p is not None:
+                yes_notional += count * p
+        elif side == "no":
+            no_c += count
+        if t.get("is_block_trade"):
+            blocks += 1
+        ts = t.get("created_time")
+        if newest_ts is None:
+            newest_ts = ts
+            p = _extras_float(t.get("yes_price_dollars"))
+            last_price = round(p * 100, 1) if p is not None else None
+        oldest_ts = ts
+    return {
+        "sample_n": len(rows),
+        "sample_contracts": round(total, 2),
+        "sample_yes_contracts": round(yes_c, 2),
+        "sample_no_contracts": round(no_c, 2),
+        "sample_yes_vwap_cents": (
+            round(100 * yes_notional / yes_c, 1) if yes_c > 0 else None
+        ),
+        "sample_last_price_cents": last_price,
+        "sample_newest_ts": newest_ts,
+        "sample_oldest_ts": oldest_ts,
+        "sample_block_count": blocks,
+    }
+
+
+def fetch_market_trades(ticker, limit=100):
+    """One page of the public tape for one market (keyless, verified).
+
+    GET /markets/trades?ticker={ticker}&limit={limit}. Returns the
+    raw trades list, or None when the endpoint is unavailable (HTTP
+    error, empty body, wrong shape). Never raises. One call only —
+    callers never paginate."""
+    try:
+        data = fetch_json(
+            f"{KALSHI_TRADES}?ticker={ticker}&limit={int(limit)}"
+        )
+        trades = data.get("trades")
+        return trades if isinstance(trades, list) else None
+    except Exception:
+        return None
+
+
+def fetch_settled_market_extras(ticker, series=KALSHI_EXTRAS_SERIES):
+    """The settled row for one ticker from the public /markets list.
+
+    GET /markets?series_ticker=...&limit=5&status=settled, matched on
+    ticker. Returns parsed extras or None (not settled yet / fetch
+    failed / ticker absent). Never raises."""
+    try:
+        data = fetch_json(
+            "https://api.elections.kalshi.com/trade-api/v2/markets"
+            f"?series_ticker={series}&limit=5&status=settled"
+        )
+    except Exception:
+        return None
+    for m in data.get("markets", []) or []:
+        if m.get("ticker") == ticker:
+            return parse_kalshi_market_extras(m)
+    return None
+
+
+def record_kalshi_window_extras(ticker, series=KALSHI_EXTRAS_SERIES):
+    """Settle-time extras snapshot for one closed BTC window.
+
+    Fetches the settled market row + one 100-trade tape page (2 Kalshi
+    calls, only at window rollover: 8/hour for BTC), then writes ONE
+    row to kalshi_window_extras and backfills the final fields onto
+    the window's existing windows row (UPDATE, never INSERT — the
+    windows row and its resolution are owned by settle_window, which
+    already ran). Display/diagnostics only: never writes signals or
+    track_record_summary. Returns the stored dict, or None when the
+    settled row could not be fetched (a tape failure alone still
+    stores the market row with a zero-trade sample). Never raises."""
+    try:
+        ex = fetch_settled_market_extras(ticker, series)
+        if ex is None:
+            return None
+        tape = parse_kalshi_trades(fetch_market_trades(ticker, limit=100) or [])
+        now = time.time()
+        stored = {
+            "ticker": ticker,
+            "settled_at": now,
+            "volume_total": ex.get("volume_total"),
+            "volume_24h": ex.get("volume_24h"),
+            "open_interest": ex.get("open_interest"),
+            "last_price_cents": ex.get("last_price_cents"),
+            "market_result": ex.get("market_result"),
+            "expiration_value": ex.get("expiration_value"),
+            "settlement_ts": ex.get("settlement_ts"),
+            "trades_sample_n": tape["sample_n"],
+            "trades_sample_contracts": tape["sample_contracts"],
+            "trades_sample_yes_contracts": tape["sample_yes_contracts"],
+            "trades_sample_no_contracts": tape["sample_no_contracts"],
+            "trades_sample_yes_vwap_cents": tape["sample_yes_vwap_cents"],
+            "trades_sample_last_price_cents": tape["sample_last_price_cents"],
+            "trades_sample_newest_ts": tape["sample_newest_ts"],
+            "trades_sample_oldest_ts": tape["sample_oldest_ts"],
+            "trades_sample_block_count": tape["sample_block_count"],
+            "fetched_at": now,
+        }
+        conn = db()
+        conn.execute(
+            "INSERT OR REPLACE INTO kalshi_window_extras "
+            "(ticker, settled_at, volume_total, volume_24h, open_interest, "
+            "last_price_cents, market_result, expiration_value, settlement_ts, "
+            "trades_sample_n, trades_sample_contracts, "
+            "trades_sample_yes_contracts, trades_sample_no_contracts, "
+            "trades_sample_yes_vwap_cents, trades_sample_last_price_cents, "
+            "trades_sample_newest_ts, trades_sample_oldest_ts, "
+            "trades_sample_block_count, fetched_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (stored["ticker"], stored["settled_at"], stored["volume_total"],
+             stored["volume_24h"], stored["open_interest"],
+             stored["last_price_cents"], stored["market_result"],
+             stored["expiration_value"], stored["settlement_ts"],
+             stored["trades_sample_n"], stored["trades_sample_contracts"],
+             stored["trades_sample_yes_contracts"],
+             stored["trades_sample_no_contracts"],
+             stored["trades_sample_yes_vwap_cents"],
+             stored["trades_sample_last_price_cents"],
+             stored["trades_sample_newest_ts"],
+             stored["trades_sample_oldest_ts"],
+             stored["trades_sample_block_count"], stored["fetched_at"]),
+        )
+        conn.execute(
+            "UPDATE windows SET volume_24h = ?, open_interest = ?, "
+            "last_price_cents = ?, market_result = ?, expiration_value = ? "
+            "WHERE ticker = ?",
+            (stored["volume_24h"], stored["open_interest"],
+             stored["last_price_cents"], stored["market_result"],
+             stored["expiration_value"], ticker),
+        )
+        conn.commit()
+        conn.close()
+        return stored
     except Exception:
         return None
 
@@ -934,6 +1246,274 @@ def fetch_silver_spot():
         return float(data["price"])
     except Exception:
         return None
+
+
+# ---- EXTRA SPOT SOURCES (piece 2, display/diagnostics only) ----
+# Added 2026-11-18. NOTHING in this block feeds the v1 signal, gates
+# it, or touches the track record: it is a second opinion on the spot
+# price for display and diagnostics. Two sources:
+#   * Binance.US BTCUSD spot — NEW server poll, every 60s, public and
+#     keyless (verified live 2026-11-18:
+#     {"symbol": "BTCUSD", "price": "64011.98000000"}). Stored in
+#     binanceus_spot_samples on the same backend as the other spot
+#     tables (Turso when configured, else local SQLite). Write math:
+#     1 insert / 60 s = 1,440/day = 43,200/month = 0.43% of Turso's
+#     10M/month free cap, ~2.7% of the ~1.6M/month headroom left over
+#     the measured ~8.4M/month — plus one hourly prune DELETE
+#     (~720/month). Fits with headroom.
+#   * Kraken BTC mid-price — NO new request anywhere. The Kraken depth
+#     feed (api.kraken.com/0/public/Depth?pair=XBTUSD&count=10) is
+#     already polled every 15s by the viewer (index-pulse.html, browser
+#     side — tracker.py itself never fetches Kraken; the 15s poll lives
+#     in the viewer, not the server). The depth response carries best
+#     bid/ask as result.<pair>.bids[0][0] / result.<pair>.asks[0][0]
+#     (verified live 2026-11-18: best bid 64082.30, best ask 64082.40
+#     -> mid 64082.35), so kraken_mid_from_depth() below derives
+#     mid = (best bid + best ask) / 2 from that response with no extra
+#     poll. The mid is derived where the depth already exists — in the
+#     viewer — and the server keeps only the derivation helper plus a
+#     payload slot that stays None server-side (see
+#     extra_spot_payload()).
+# The consensus check compares the sources the server holds (Coinbase
+# spot + Binance.US) and, in the viewer, all three including the Kraken
+# mid. Threshold 0.20% (~$128 at $64k): ~7x the 0.01-0.03%
+# simultaneous cross-exchange dispersion measured 2026-11-18 (Kraken
+# mid vs Coinbase 0.012%, Binance.US BTCUSD vs Coinbase 0.028%), so
+# ordinary arbitrage noise never trips it, while a stale or broken
+# feed diverging in a live market does. A divergent flag is a log line
+# + a field on the live read only — never a signal input.
+BINANCEUS_TICKER = "https://api.binance.us/api/v3/ticker/price?symbol=BTCUSD"
+BINANCEUS_SPOT_TABLE = "binanceus_spot_samples"
+BINANCEUS_POLL_SECS = 60  # one public, keyless request a minute
+SPOT_DIVERGENCE_PCT = 0.20  # max pairwise spread (%) before flagging
+
+
+def kraken_mid_from_depth(payload):
+    """Mid-price from a raw Kraken Depth response — pure, no network.
+
+    Kraken's public Depth endpoint returns
+    {"error": [], "result": {"XXBTZUSD": {"asks": [["64082.40000",
+    "0.088", ...]], "bids": [["64082.30000", "0.547", ...]]}}} — the
+    pair key is Kraken's own (XXBTZUSD), so the first result entry is
+    used, exactly like the viewer's parse. Best bid is bids[0][0],
+    best ask is asks[0][0]; mid = (best bid + best ask) / 2. Returns
+    {"pair", "best_bid", "best_ask", "mid", "spread_usd"} or None when
+    the response is an error, empty, one-sided, or non-numeric — never
+    raises, never estimates.
+    """
+    try:
+        if not isinstance(payload, dict):
+            return None
+        errors = payload.get("error") or []
+        if errors:
+            return None
+        result = payload.get("result") or {}
+        if not isinstance(result, dict) or not result:
+            return None
+        pair, book = next(iter(result.items()))
+        if not isinstance(book, dict):
+            return None
+        bids = book.get("bids") or []
+        asks = book.get("asks") or []
+        if not bids or not asks:
+            return None
+        if not isinstance(bids[0], (list, tuple)) or not bids[0]:
+            return None
+        if not isinstance(asks[0], (list, tuple)) or not asks[0]:
+            return None
+        best_bid = float(bids[0][0])
+        best_ask = float(asks[0][0])
+        if not (math.isfinite(best_bid) and math.isfinite(best_ask)):
+            return None
+        if best_bid <= 0 or best_ask <= 0 or best_ask < best_bid:
+            return None
+        return {
+            "pair": pair,
+            "best_bid": best_bid,
+            "best_ask": best_ask,
+            "mid": (best_bid + best_ask) / 2,
+            "spread_usd": best_ask - best_bid,
+        }
+    except (TypeError, ValueError, IndexError, KeyError):
+        return None
+
+
+def parse_binanceus_ticker(payload):
+    """BTC price from a Binance.US ticker/price response — pure.
+
+    The public endpoint returns {"symbol": "BTCUSD", "price":
+    "64011.98000000"}. Returns the float price, or None for a wrong
+    symbol, a missing/non-numeric price, or a non-positive price.
+    """
+    try:
+        if not isinstance(payload, dict):
+            return None
+        if payload.get("symbol") != "BTCUSD":
+            return None
+        price = float(payload["price"])
+        if not math.isfinite(price) or price <= 0:
+            return None
+        return price
+    except (TypeError, ValueError, KeyError):
+        return None
+
+
+def fetch_binanceus_spot():
+    """Live Binance.US BTCUSD spot (USD). Public, no key. Never raises."""
+    try:
+        return parse_binanceus_ticker(fetch_json(BINANCEUS_TICKER))
+    except Exception:
+        return None
+
+
+def check_spot_consensus(prices, threshold_pct=SPOT_DIVERGENCE_PCT):
+    """Cross-exchange agreement check — pure, diagnostic only.
+
+    prices: {"coinbase": 63994.14, "kraken_mid": 63986.65, ...} with
+    None values skipped. Returns {"sources", "max_spread_pct",
+    "worst_pair", "threshold_pct", "diverged", "note"}. diverged is
+    True only when the widest pairwise spread is STRICTLY above the
+    threshold, so a spread exactly at the threshold does not flag.
+    With fewer than two usable sources there is nothing to compare:
+    diverged is False and max_spread_pct is None. Never raises.
+    """
+    try:
+        usable = {
+            name: float(value)
+            for name, value in (prices or {}).items()
+            if value is not None
+        }
+    except (TypeError, ValueError, AttributeError):
+        usable = {}
+    usable = {
+        name: value
+        for name, value in usable.items()
+        if math.isfinite(value) and value > 0
+    }
+    if len(usable) < 2:
+        return {
+            "sources": usable,
+            "max_spread_pct": None,
+            "worst_pair": None,
+            "threshold_pct": threshold_pct,
+            "diverged": False,
+            "note": "Need 2+ spot sources to compare.",
+        }
+    worst_pair, worst_spread = None, 0.0
+    names = sorted(usable)
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            spread = abs(usable[a] - usable[b]) / ((usable[a] + usable[b]) / 2) * 100
+            if spread > worst_spread:
+                worst_pair, worst_spread = [a, b], spread
+    diverged = worst_spread > threshold_pct
+    return {
+        "sources": usable,
+        "max_spread_pct": round(worst_spread, 4),
+        "worst_pair": worst_pair,
+        "threshold_pct": threshold_pct,
+        "diverged": diverged,
+        "note": (
+            "Spot sources disagree by more than "
+            f"{threshold_pct}% — diagnostic only, never a signal input."
+            if diverged
+            else "Spot sources agree within threshold."
+        ),
+    }
+
+
+def poll_extra_spot(now):
+    """One Binance.US spot tick (throttled to BINANCEUS_POLL_SECS).
+
+    Called once per poll loop, not per series: at most one public,
+    keyless Binance.US request a minute. Stores the sample in
+    binanceus_spot_samples (same backend as the other spot tables),
+    refreshes the in-memory state, and recomputes the consensus over
+    the sources the server holds. Divergence is logged only on the
+    False -> True transition (and a one-line "resolved" on True ->
+    False), so a stuck feed logs once, not every minute. Never raises:
+    a failed fetch leaves the last good read in place.
+    """
+    try:
+        if now - (_state.get("binanceus_spot_try_ts") or 0) < BINANCEUS_POLL_SECS:
+            return
+        _state["binanceus_spot_try_ts"] = now
+        price = fetch_binanceus_spot()
+        if price is None:
+            return
+        _state["binanceus_spot"] = price
+        _state["binanceus_spot_ts"] = now
+        conn = db()
+        conn.execute(
+            f"INSERT OR IGNORE INTO {BINANCEUS_SPOT_TABLE} (ts, price) VALUES (?, ?)",
+            (now, price),
+        )
+        if now - _last_prune.get(BINANCEUS_SPOT_TABLE, 0) >= 3600:
+            conn.execute(
+                f"DELETE FROM {BINANCEUS_SPOT_TABLE} WHERE ts < ?", (now - 86400,)
+            )
+            _last_prune[BINANCEUS_SPOT_TABLE] = now
+        conn.commit()
+        conn.close()
+        consensus = check_spot_consensus({
+            "coinbase": _state.get("spot"),
+            "binanceus": price,
+            "kraken_mid": _state.get("kraken_mid"),
+        })
+        _state["extra_spot_consensus"] = consensus
+        was = _state.get("extra_spot_diverged") or False
+        _state["extra_spot_diverged"] = bool(consensus["diverged"])
+        if consensus["diverged"] and not was:
+            print(
+                "[extra-spot] DIVERGENCE: spot sources disagree by "
+                f"{consensus['max_spread_pct']}% "
+                f"(worst pair {consensus['worst_pair']}, threshold "
+                f"{SPOT_DIVERGENCE_PCT}%) — diagnostic only",
+                flush=True,
+            )
+        elif was and not consensus["diverged"]:
+            print("[extra-spot] spot sources agree again", flush=True)
+    except Exception as exc:  # noqa: BLE001 - a diagnostics failure must
+        # never kill the poll thread; the last good read stays in place.
+        _state["errors"].append(f"extra-spot {exc}")
+
+
+def extra_spot_payload():
+    """The extra-spot block for the BTC /live payload (display only).
+
+    kraken_mid_usd is None server-side BY DESIGN: the Kraken mid is
+    derived in the viewer from the depth feed it already polls every
+    15s (the server never fetches Kraken), and the viewer fills in the
+    three-way comparison from this same payload. The server consensus
+    covers the two sources the server holds (Coinbase + Binance.US).
+    """
+    now = time.time()
+    return {
+        "coinbase_usd": _state.get("spot"),
+        "binanceus_usd": _state.get("binanceus_spot"),
+        "binanceus_age_seconds": (
+            round(now - _state["binanceus_spot_ts"])
+            if _state.get("binanceus_spot_ts")
+            else None
+        ),
+        "binanceus_source": (
+            "api.binance.us/api/v3/ticker/price?symbol=BTCUSD "
+            "(public, no key, polled every 60s)"
+        ),
+        "kraken_mid_usd": _state.get("kraken_mid"),
+        "kraken_note": (
+            "Derived in the viewer from the Kraken depth feed it already "
+            "polls every 15s (api.kraken.com/0/public/Depth); the server "
+            "never fetches Kraken — see kraken_mid_from_depth()."
+        ),
+        "consensus": _state.get("extra_spot_consensus"),
+        "threshold_pct": SPOT_DIVERGENCE_PCT,
+        "note": (
+            "Display/diagnostic only — never an input to the signal "
+            "or the track record."
+        ),
+    }
+# ---- END EXTRA SPOT SOURCES ----
 
 
 def fetch_gold_market():
@@ -1232,9 +1812,25 @@ def poll_series(cfg, now):
                     # 2026-11-16). The window stays unsettled; the
                     # error is visible in /health.
                     S["errors"].append(f"settle {exc}")
+            # Kalshi extras (piece 3, BTC only, display/diagnostics):
+            # one settle-time snapshot of the closed window — final
+            # volume / OI / result / settlement value + a 100-trade
+            # tape sample. Never touches the resolution, signals or
+            # the track-record summary. Failures are swallowed: a
+            # missing extras row must never block the rollover.
+            if prev and cfg.get("series_ticker") == KALSHI_EXTRAS_SERIES:
+                try:
+                    record_kalshi_window_extras(prev["ticker"])
+                except Exception as exc:  # noqa: BLE001
+                    S["errors"].append(f"kalshi-extras {exc}")
             S[K["window"]] = win
             S[K["target"]] = None
             S[K["target_provisional"]] = False
+            # Kalshi extras (piece 3): keep the live window's parsed
+            # market fields in memory for /kalshi-extras (BTC only).
+            if cfg.get("series_ticker") == KALSHI_EXTRAS_SERIES and win.get("extras"):
+                S["kalshi_extras"] = win["extras"]
+                S["kalshi_extras_ts"] = now
             # target = 60s average before the window opened
             avg, n = avg_spot(win["open_ts"] - 60, win["open_ts"], cfg["spot_table"])
             if avg is not None and n >= 5:
@@ -1254,12 +1850,22 @@ def poll_series(cfg, now):
             S[K["target_provisional"]] = prov
             if cfg.get("track_record", True):
                 conn = db()
+                # Kalshi extras (piece 3): the rollover INSERT also
+                # carries the market's own strike, 24h volume, open
+                # interest and last price from the /markets row already
+                # fetched for the window — zero extra Kalshi calls and
+                # zero extra writes. Display/diagnostics only: the
+                # signal still uses the computed target, never strike.
+                ex = win.get("extras") or {}
                 conn.execute(
                     "INSERT OR IGNORE INTO windows "
-                    "(ticker, open_ts, close_ts, target, target_provisional) "
-                    "VALUES (?, ?, ?, ?, ?)",
+                    "(ticker, open_ts, close_ts, target, target_provisional, "
+                    "strike_usd, volume_24h, open_interest, last_price_cents) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (win["ticker"], win["open_ts"], win["close_ts"],
-                     target, 1 if prov else 0),
+                     target, 1 if prov else 0, ex.get("strike_usd"),
+                     ex.get("volume_24h"), ex.get("open_interest"),
+                     ex.get("last_price_cents")),
                 )
                 conn.commit()
                 conn.close()
@@ -1343,6 +1949,11 @@ def poll_forever():
             except Exception as exc:  # noqa: BLE001 - backstop; poll_series
                 # already guards each step, so reaching here is unexpected.
                 _state["errors"].append(f"{cfg['name']} poll {exc}")
+        # --- extra spot sources (piece 2, display only): Binance.US
+        # BTCUSD spot, throttled to one public keyless request a minute
+        # inside poll_extra_spot(). No Kraken request is made here —
+        # the Kraken mid is derived in the viewer from its own feed.
+        poll_extra_spot(now)
         # --- gold (slow: spot every ~30s, market every ~60s, book ~60s)
         # Gold is a daily market; it does not need 5-second polling, and
         # gentle polling respects the undocumented keyless rate limit.
@@ -1460,7 +2071,7 @@ def live_series_payload(cfg):
     sig = _state[K["sigma"]]
     now = time.time()
     direction, conf, _, _ = direction_and_confidence(spot, target, sig)
-    return {
+    payload = {
         "as_of": datetime.fromtimestamp(now, tz=timezone.utc).isoformat(),
         "market": (
             {
@@ -1515,6 +2126,13 @@ def live_series_payload(cfg):
             }
         ),
     }
+    # Extra spot sources (piece 2, BTC only, display only): the
+    # consensus block rides on the BTC payload so the viewer can show
+    # the three-way check without a new request. ETH has no second
+    # spot source in this piece.
+    if cfg["series_ticker"] == "KXBTC15M":
+        payload["extra_spot"] = extra_spot_payload()
+    return payload
 
 
 def live_btc_payload():
@@ -2121,20 +2739,102 @@ def entries(limit: int = 50, series: str = ""):
     return out
 
 
+@app.get("/kalshi-extras")
+def kalshi_extras(limit: int = 10, series: str = "KXBTC15M"):
+    """Verified-available Kalshi extras for KXBTC15M — display only.
+
+    The live window's parsed market fields (strike, 24h/total volume,
+    open interest, last price — from the /markets fetch the tracker
+    already makes, no extra polling) plus the last settled windows'
+    stored snapshots (final volume/OI/result/settlement value and the
+    100-trade tape sample). Nothing here feeds the signal or the track
+    record. previous_price_dollars is intentionally absent: it read
+    '0.0000' on every verified sample, open and settled."""
+    limit = max(1, min(50, limit))
+    conn = db()
+    rows = conn.execute(
+        "SELECT ticker, settled_at, volume_total, volume_24h, open_interest, "
+        "last_price_cents, market_result, expiration_value, settlement_ts, "
+        "trades_sample_n, trades_sample_contracts, "
+        "trades_sample_yes_contracts, trades_sample_no_contracts, "
+        "trades_sample_yes_vwap_cents, trades_sample_last_price_cents, "
+        "trades_sample_newest_ts, trades_sample_oldest_ts, "
+        "trades_sample_block_count "
+        "FROM kalshi_window_extras WHERE ticker LIKE ? "
+        "ORDER BY settled_at DESC LIMIT ?",
+        (series + "%", limit),
+    ).fetchall()
+    conn.close()
+    live = _state.get("kalshi_extras")
+    return {
+        "series": series,
+        "status": "ok" if live else "waiting",
+        "live_window": (
+            dict(
+                live,
+                as_of=(
+                    datetime.fromtimestamp(
+                        _state["kalshi_extras_ts"], tz=timezone.utc
+                    ).isoformat()
+                    if _state.get("kalshi_extras_ts") else None
+                ),
+            )
+            if live else None
+        ),
+        "settled_windows": [
+            {
+                "ticker": r["ticker"],
+                "settled_at": (
+                    datetime.fromtimestamp(r["settled_at"], tz=timezone.utc).isoformat()
+                    if r["settled_at"] else None
+                ),
+                "volume_total": r["volume_total"],
+                "volume_24h": r["volume_24h"],
+                "open_interest": r["open_interest"],
+                "last_price_cents": r["last_price_cents"],
+                "market_result": r["market_result"],
+                "expiration_value": r["expiration_value"],
+                "settlement_ts": r["settlement_ts"],
+                "trades_sample": {
+                    "n": r["trades_sample_n"],
+                    "contracts": r["trades_sample_contracts"],
+                    "yes_contracts": r["trades_sample_yes_contracts"],
+                    "no_contracts": r["trades_sample_no_contracts"],
+                    "yes_vwap_cents": r["trades_sample_yes_vwap_cents"],
+                    "last_price_cents": r["trades_sample_last_price_cents"],
+                    "newest_ts": r["trades_sample_newest_ts"],
+                    "oldest_ts": r["trades_sample_oldest_ts"],
+                    "block_count": r["trades_sample_block_count"],
+                },
+            }
+            for r in rows
+        ],
+        "notes": [
+            "Display only. Nothing here feeds the v1 signal or the track record.",
+            "The tape sample is the 100 most recent trades at settle time, not the full window tape.",
+            "Strike is the market's own floor_strike; the signal still uses the computed target.",
+        ],
+    }
+
+
 @app.get("/windows")
 def windows(limit: int = 10, series: str = ""):
     conn = db()
     if series:
         rows = conn.execute(
             "SELECT ticker, open_ts, close_ts, target, target_provisional, "
-            "resolution FROM windows WHERE ticker LIKE ? "
+            "resolution, strike_usd, volume_24h, open_interest, "
+            "last_price_cents, market_result, expiration_value "
+            "FROM windows WHERE ticker LIKE ? "
             "ORDER BY close_ts DESC LIMIT ?",
             (series + "%", limit),
         ).fetchall()
     else:
         rows = conn.execute(
             "SELECT ticker, open_ts, close_ts, target, target_provisional, "
-            "resolution FROM windows ORDER BY close_ts DESC LIMIT ?",
+            "resolution, strike_usd, volume_24h, open_interest, "
+            "last_price_cents, market_result, expiration_value "
+            "FROM windows ORDER BY close_ts DESC LIMIT ?",
             (limit,),
         ).fetchall()
     conn.close()
@@ -2146,6 +2846,12 @@ def windows(limit: int = 10, series: str = ""):
             "target_usd": r["target"],
             "target_provisional": bool(r["target_provisional"]),
             "resolution": r["resolution"],
+            "strike_usd": r["strike_usd"],
+            "volume_24h": r["volume_24h"],
+            "open_interest": r["open_interest"],
+            "last_price_cents": r["last_price_cents"],
+            "market_result": r["market_result"],
+            "expiration_value": r["expiration_value"],
         }
         for r in rows
     ]
@@ -2157,7 +2863,7 @@ def root():
         {
             "service": "BTC Oracle Pro — public tracking API",
             "paper_only": True,
-            "endpoints": ["/live", "/live/all", "/candles", "/signals", "/track-record", "/entries", "/windows", "/top-markets", "/health", "/app", "/me", "/app/live", "/app/callouts", "/auth/signup", "/auth/login", "/auth/logout", "/stripe/webhook"],
+            "endpoints": ["/live", "/live/all", "/candles", "/signals", "/track-record", "/entries", "/windows", "/kalshi-extras", "/top-markets", "/health", "/app", "/me", "/app/live", "/app/callouts", "/auth/signup", "/auth/login", "/auth/logout", "/stripe/webhook"],
             "note": "Signals are UNVALIDATED v1 logic. Not financial advice. No live trading.",
         }
     )
