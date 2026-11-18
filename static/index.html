@@ -311,6 +311,21 @@
   .today-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; padding: 9px 0; border-top: 1px solid var(--line-soft); font-size: 13.5px; }
   .today-row .mkt { font-weight: 700; }
   .today-row .nums { font-family: var(--mono); font-size: 12.5px; color: var(--ink-dim); text-align: right; }
+  /* Confirmation strip */
+  .confirm-markers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+  @media (max-width: 640px) { .confirm-markers { grid-template-columns: 1fr; } }
+  .confirm-marker { background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: 8px; padding: 10px 12px; }
+  .confirm-marker .k { font-family: var(--mono); font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); }
+  .confirm-marker .v { font-family: var(--mono); font-size: 15px; font-weight: 700; margin-top: 3px; }
+  .confirm-marker .v.up { color: var(--up); }
+  .confirm-marker .v.down { color: var(--amber); }
+  .confirm-marker .v.neutral { color: var(--ink-dim); }
+  .confirm-marker .s { font-size: 12px; color: var(--ink-dim); margin-top: 2px; }
+  .confirm-count { font-family: var(--mono); font-size: 20px; font-weight: 700; margin: 8px 0 2px; }
+  .confirm-count.up { color: var(--up); }
+  .confirm-count.down { color: var(--amber); }
+  .confirm-strip.all-up { border-color: var(--up); background: linear-gradient(180deg, var(--up-bg), transparent 140px), var(--panel); }
+  .confirm-strip.all-down { border-color: var(--amber); background: linear-gradient(180deg, var(--amber-bg), transparent 140px), var(--panel); }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
   .chip {
     font-family: var(--mono); font-size: 11px; font-weight: 700; text-transform: uppercase;
@@ -1237,18 +1252,95 @@ function levelsHTML(m) {
     + '<table class="kv" style="margin-top:10px;"><thead><tr><th>Price</th><th>Kind</th><th>Touches</th></tr></thead><tbody>'
     + row(lv.resistance) + row(lv.support) + '</tbody></table></div>';
 }
-function imbalanceHTML(m) {
+/* The book-imbalance number, computed once and shared by the book panel and
+   the confirmation strip so the two can never disagree. Same 55/45 rule both
+   places: YES at 55% or more of the book is heavier, at 45% or less is lighter. */
+function bookImbalancePct(m) {
   const book = m.kalshi_book || {};
   const yes = (book.yes_ladder || []).reduce((a, r) => a + (r.size || 0), 0);
   const no = (book.no_ladder || []).reduce((a, r) => a + (r.size || 0), 0);
   const tot = yes + no;
-  if (!tot) return "";
-  const yesPct = (yes / tot) * 100;
+  if (!tot) return null;
+  return (yes / tot) * 100;
+}
+function imbalanceHTML(m) {
+  const yesPct = bookImbalancePct(m);
+  if (yesPct === null) return "";
   const verdict = yesPct >= 55 ? "YES side is heavier" : (yesPct <= 45 ? "NO side is heavier" : "Book is balanced");
   return '<div class="panel"><div class="panel-head"><h2 class="panel-title">Book imbalance — Kalshi YES vs NO</h2><span class="fresh">display only</span></div>'
     + '<div class="splitbar"><div class="yes" style="width:' + yesPct.toFixed(1) + '%"></div><div class="no" style="width:' + (100 - yesPct).toFixed(1) + '%"></div></div>'
     + '<div class="verdict">' + esc(verdict) + '</div>'
     + '<p class="sig-note">YES ' + yesPct.toFixed(1) + '% · NO ' + (100 - yesPct).toFixed(1) + '% of contracts on the top of the book. Computed in the browser from the live book — it does not feed the signal, and it is parked for Stage 2 backtesting.</p></div>';
+}
+
+/* ---- Confirmation strip: three markers that each vote UP, DOWN or neutral.
+   Display only — it never feeds the signal, never gates anything, and never
+   changes the call. The count line is a count of how many markers point the
+   same way, never a promise.
+   Marker 1 — Signal: the v1 direction, only when confidence is at the 60%
+   ENTER floor; below it there is no call and the marker is neutral.
+   Marker 2 — Kalshi book: the same book-imbalance number the book panel
+   shows (55/45 rule). YES heavier = UP lean, NO heavier = DOWN lean.
+   Marker 3 — Trend: the 1m closes the line-moved panel already draws. Last
+   close above the first close inside this window = UP, below = DOWN, flat
+   or fewer than 2 closes = neutral.
+   NOTE — why trend, not Kraken depth: this viewer never had a Kraken depth
+   panel, and neither the API nor the local tracker serves Kraken depth, so
+   there was no depth number to reuse. A Kraken fetch would be new data the
+   strip is not allowed to invent. The trend uses only the /candles the page
+   already fetches. If the API serves Kraken depth later, marker 3 can be
+   swapped for it in one place (trendVote). */
+function signalVote(m) {
+  const sig = m.signal;
+  if (!sig || (sig.direction !== "UP" && sig.direction !== "DOWN")) return { vote: null, note: "No call — below the 60% floor" };
+  if (sig.confidence_pct === null || sig.confidence_pct === undefined || sig.confidence_pct < 60) return { vote: null, note: "No call — below the 60% floor" };
+  return { vote: sig.direction, note: "v1 · " + sig.confidence_pct + "% confidence" };
+}
+function bookVote(m) {
+  const yesPct = bookImbalancePct(m);
+  if (yesPct === null) return { vote: null, note: "No live book right now" };
+  if (yesPct >= 55) return { vote: "UP", note: "YES " + yesPct.toFixed(1) + "% of the book" };
+  if (yesPct <= 45) return { vote: "DOWN", note: "NO " + (100 - yesPct).toFixed(1) + "% of the book" };
+  return { vote: null, note: "Balanced — YES " + yesPct.toFixed(1) + "%" };
+}
+async function trendVote(def, m) {
+  const candles = await ensureCandles(def.series);
+  const b = windowBounds(def, m);
+  const inWin = candlesInWindow(candles, b.open, b.close);
+  if (inWin.length < 2) return { vote: null, note: "Not enough closes yet" };
+  const first = inWin[0].c, last = inWin[inWin.length - 1].c;
+  if (last > first) return { vote: "UP", note: "Closes rising in-window" };
+  if (last < first) return { vote: "DOWN", note: "Closes falling in-window" };
+  return { vote: null, note: "Flat in-window" };
+}
+function confirmMarkerCell(label, v) {
+  const cls = v.vote === "UP" ? "up" : v.vote === "DOWN" ? "down" : "neutral";
+  const word = v.vote === "UP" ? "UP" : v.vote === "DOWN" ? "DOWN" : "Neutral";
+  return '<div class="confirm-marker"><div class="k">' + esc(label) + '</div>'
+    + '<div class="v ' + cls + '">' + esc(word) + '</div>'
+    + '<div class="s">' + esc(v.note) + '</div></div>';
+}
+async function confirmStripHTML(def, m) {
+  // Only where a signal exists: BTC and ETH. Feed-only tabs (gold, SOL, ...)
+  // have no signal, so they get no strip rather than a partial one.
+  if (!def.signal || !m.signal) return "";
+  const sv = signalVote(m);
+  const bv = bookVote(m);
+  const tv = await trendVote(def, m);
+  const votes = [sv.vote, bv.vote, tv.vote];
+  const up = votes.filter(v => v === "UP").length;
+  const down = votes.filter(v => v === "DOWN").length;
+  let countHtml, stripCls = "";
+  if (up === 3) { countHtml = '<div class="confirm-count up">3 of 3 agree UP</div>'; stripCls = " all-up"; }
+  else if (down === 3) { countHtml = '<div class="confirm-count down">3 of 3 agree DOWN</div>'; stripCls = " all-down"; }
+  else if (up > down) { countHtml = '<div class="confirm-count up">' + up + ' of 3 agree UP</div>'; }
+  else if (down > up) { countHtml = '<div class="confirm-count down">' + down + ' of 3 agree DOWN</div>'; }
+  else if (up > 0) { countHtml = '<div class="confirm-count">Split — ' + up + ' agree' + (up === 1 ? "s" : "") + ' UP, ' + down + ' agree' + (down === 1 ? "s" : "") + ' DOWN</div>'; }
+  else { countHtml = '<div class="confirm-count">No marker leans either way</div>'; }
+  return '<div class="panel confirm-strip' + stripCls + '"><div class="panel-head"><h2 class="panel-title">Confirmation — 3 markers</h2><span class="fresh">display only</span></div>'
+    + countHtml
+    + '<div class="confirm-markers">' + confirmMarkerCell("Signal", sv) + confirmMarkerCell("Kalshi book", bv) + confirmMarkerCell("Trend", tv) + '</div>'
+    + '<p class="sig-note" style="margin-top:10px;">A count of how many of the three markers point the same way — not a guarantee, and it never changes the signal. A split is the honest warning: the markers disagree.</p></div>';
 }
 
 function trackRecordHTML(series, isSignal) {
@@ -1467,6 +1559,7 @@ async function renderPane(key) {
   if (def.signal) {
     html += explainerHTML(true);
     html += '<div class="dash dash-top">' + signalPanelHTML(def, m) + gaugeHTML(def, m) + telemetryHTML(m) + '</div>';
+    html += await confirmStripHTML(def, m);
     const chart = await chartPanelHTML(def, m);
     html += '<div class="dash dash-mid">' + chart + momentumHTML(m) + '</div>';
     html += await lineMovedHTML(def, m);
