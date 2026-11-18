@@ -3,98 +3,399 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="/app/manifest.json">
+<meta name="theme-color" content="#0c1f1d">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BTC Oracle Pro">
+<link rel="icon" type="image/svg+xml" href="/app/icon.svg">
+<link rel="apple-touch-icon" href="/app/icon.svg">
 <title>BTC Oracle Pro — App</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0c1f1d;
-    --surface: #122b28;
-    --surface-2: #173530;
-    --border: #234740;
-    --text: #e8f1ee;
-    --muted: #9db8b1;
+    --bg: #07090c;
+    --panel: #0e1218;
+    --panel-2: #12181f;
+    --line: #1e2732;
+    --line-soft: #161e27;
+    --ink: #e8eef4;
+    --ink-dim: #9fb0c0;
+    --ink-faint: #5f7185;
+    --up: #2ee59d;
+    --down: #ff5d6c;
+    --amber: #ffb020;
     --teal: #2dd4bf;
-    --orange: #f59e0b;
-    --danger: #f87171;
+    --orange: #ff6a1a;
+    --amber-bg: rgba(255,176,32,0.12);
+    --up-bg: rgba(46,229,157,0.10);
+    --down-bg: rgba(255,93,108,0.10);
+    --row-bg: rgba(255,255,255,0.015);
+    --sans: 'Archivo', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  [data-theme="light"] {
+    --bg: #edf1f4;
+    --panel: #ffffff;
+    --panel-2: #eaf0f4;
+    --line: #c9d6df;
+    --line-soft: #dde6ec;
+    --ink: #15222d;
+    --ink-dim: #42566a;
+    --ink-faint: #687f95;
+    --up: #0b9668;
+    --down: #d92d3f;
+    --amber: #9c6a00;
+    --teal: #0d9488;
+    --amber-bg: rgba(156,106,0,0.10);
+    --up-bg: rgba(11,150,104,0.10);
+    --down-bg: rgba(217,45,63,0.08);
   }
   * { box-sizing: border-box; }
+  html { background: var(--bg); }
   body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    line-height: 1.5;
+    margin: 0;
+    background:
+      radial-gradient(900px 500px at 15% -10%, rgba(45,212,191,0.10), transparent 60%),
+      radial-gradient(700px 420px at 90% 0%, rgba(46,229,157,0.07), transparent 60%),
+      var(--bg);
+    background-attachment: fixed;
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.45;
   }
-  .wrap { max-width: 860px; margin: 0 auto; padding: 16px; }
+  body::before {
+    content: "";
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image:
+      radial-gradient(rgba(232,238,244,0.05) 1px, transparent 1px),
+      linear-gradient(rgba(232,238,244,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(232,238,244,0.025) 1px, transparent 1px);
+    background-size: 22px 22px, 56px 56px, 56px 56px;
+    -webkit-mask-image: linear-gradient(180deg, #000 0%, transparent 96%);
+    mask-image: linear-gradient(180deg, #000 0%, transparent 96%);
+  }
+  [data-theme="light"] body::before {
+    background-image:
+      radial-gradient(rgba(21,34,45,0.06) 1px, transparent 1px),
+      linear-gradient(rgba(21,34,45,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(21,34,45,0.03) 1px, transparent 1px);
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 20px 16px 40px; position: relative; z-index: 1; }
+  a { color: var(--teal); }
+  .hidden { display: none !important; }
+  .muted { color: var(--ink-dim); font-size: 0.9rem; }
+  .error { color: var(--down); margin-top: 10px; font-size: 0.95rem; }
+
+  /* Header */
   header { padding: 8px 0 0; }
-  h1 { font-size: 1.5rem; margin: 0; }
-  .tagline { color: var(--muted); margin: 2px 0 12px; }
+  .brand-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  h1 {
+    font-family: var(--mono); font-size: 34px; font-weight: 800;
+    letter-spacing: -0.02em; line-height: 1; margin: 0;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .pulse-dot {
+    width: 9px; height: 9px; border-radius: 50%; background: var(--up); flex: none;
+    animation: blink 1.6s ease-in-out infinite;
+  }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+  .theme-btn {
+    font-family: var(--mono); font-size: 12px; font-weight: 700;
+    background: var(--panel); color: var(--ink-dim); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 12px; cursor: pointer; margin: 0; white-space: nowrap;
+  }
+  .tagline { color: var(--ink-dim); margin: 8px 0 4px; font-size: 15px; }
+  .feed-status {
+    font-family: var(--mono); font-size: 12px; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--ink-faint); margin: 0 0 14px;
+    display: flex; align-items: center; gap: 7px;
+  }
+  .feed-status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--up); flex: none; }
+  .feed-status.warn { color: var(--amber); }
+  .feed-status.warn .dot { background: var(--amber); }
+
+  /* UNVALIDATED banner */
   .banner {
-    background: var(--surface-2); border: 1px solid var(--orange);
-    color: var(--orange); border-radius: 8px; padding: 10px 12px;
+    background: var(--panel-2); border: 1px solid var(--amber);
+    color: var(--amber); border-radius: 8px; padding: 10px 12px;
     font-size: 0.9rem; margin-bottom: 16px;
   }
-  .card {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 10px; padding: 16px; margin-bottom: 16px;
+
+  /* Panels */
+  .panel {
+    background: linear-gradient(180deg, rgba(45,212,191,0.035), transparent 120px), var(--panel);
+    border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 14px;
+    box-shadow: 0 10px 34px rgba(0,0,0,0.38), 0 0 22px rgba(45,212,191,0.045), inset 0 1px 0 rgba(232,238,244,0.04);
   }
-  .card h2 { margin: 0 0 8px; font-size: 1.1rem; }
-  .muted { color: var(--muted); font-size: 0.9rem; }
+  [data-theme="light"] .panel { box-shadow: 0 10px 34px rgba(21,34,45,0.10), inset 0 1px 0 rgba(255,255,255,0.6); }
+  .panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+  .panel-title {
+    font-family: var(--mono); font-size: 12px; font-weight: 700;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-dim); margin: 0;
+  }
+  .fresh {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .panel h2 { margin: 0 0 8px; font-size: 1.1rem; }
+  .mini {
+    background: var(--panel-2); border: 1px solid var(--line-soft);
+    border-radius: 8px; padding: 9px 12px;
+  }
+  .mini .k { font-family: var(--mono); font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); }
+  .mini .v { font-family: var(--mono); font-size: 16px; font-weight: 700; margin-top: 2px; }
+  .mini .s { font-size: 12px; color: var(--ink-dim); }
+
+  /* Auth */
   label { display: block; font-size: 0.9rem; margin: 10px 0 4px; }
   input[type="email"], input[type="password"] {
     width: 100%; padding: 10px; border-radius: 8px;
-    border: 1px solid var(--border); background: var(--bg); color: var(--text);
-    font-size: 1rem;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+    font-size: 1rem; font-family: var(--sans);
   }
   button {
     background: var(--teal); color: #04211d; border: none; border-radius: 8px;
     padding: 10px 18px; font-size: 1rem; font-weight: 600; cursor: pointer;
-    margin-top: 12px;
+    margin-top: 12px; font-family: var(--sans);
   }
   button.secondary { background: transparent; color: var(--teal); border: 1px solid var(--teal); }
   button:disabled { opacity: 0.5; cursor: default; }
-  .error { color: var(--danger); margin-top: 10px; font-size: 0.95rem; }
   .tabs { display: flex; gap: 8px; margin-bottom: 4px; }
   .tabs button { margin-top: 0; }
   .tabs button.active { background: var(--teal); color: #04211d; }
   .tabs button:not(.active) { background: transparent; color: var(--teal); border: 1px solid var(--teal); }
-  .market {
-    border: 1px solid var(--border); border-radius: 10px; padding: 12px;
-    margin-bottom: 12px; background: var(--surface);
+
+  /* Market tabs */
+  .tablist { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .tab {
+    font-family: var(--mono); font-size: 15px; font-weight: 700; letter-spacing: 0.03em;
+    padding: 11px 10px; border-radius: 8px; background: var(--panel);
+    border: 1px solid var(--line); color: var(--ink-dim); cursor: pointer; margin: 0;
+    text-align: left; line-height: 1.2;
   }
-  .market .head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-  .market .name { font-weight: 700; }
-  .star { background: none; border: none; color: var(--muted); font-size: 1.3rem; padding: 0 4px; margin: 0; cursor: pointer; }
-  .star.on { color: var(--orange); }
-  .big { font-size: 1.4rem; font-weight: 700; }
-  .up { color: var(--teal); }
-  .down { color: var(--orange); }
-  .signal {
-    display: inline-block; border-radius: 6px; padding: 4px 8px; font-weight: 600;
-    background: var(--surface-2); border: 1px solid var(--border); margin-top: 6px;
+  .tab small {
+    display: block; font-size: 10.5px; font-weight: 500; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--ink-faint); margin-top: 3px;
   }
-  .callout { border-left: 3px solid var(--teal); padding: 8px 10px; margin: 8px 0; background: var(--surface-2); border-radius: 0 8px 8px 0; }
-  .callout .meta { color: var(--muted); font-size: 0.85rem; }
+  .tab[aria-selected="true"] { color: var(--ink); border-color: var(--up); background: var(--panel-2); }
+  .tab[aria-selected="true"] small { color: var(--ink-dim); }
+  .tab:focus-visible { outline: 2px solid var(--up); outline-offset: 2px; }
+  .tab .star-tab { color: var(--ink-faint); font-size: 13px; margin-left: 6px; }
+  .tab .star-tab.on { color: var(--amber); }
+  .tab.glow-2 {
+    border-color: rgba(255,176,32,0.75);
+    box-shadow: 0 0 0 1px rgba(255,176,32,0.35), 0 0 14px rgba(255,176,32,0.38), 0 0 30px rgba(255,176,32,0.16);
+  }
+  .tab.glow-3 {
+    border-color: #ff6a1a; color: var(--ink);
+    box-shadow: 0 0 0 1px rgba(255,106,26,0.70), 0 0 20px rgba(255,106,26,0.65), 0 0 46px rgba(255,106,26,0.34);
+  }
+  [data-theme="light"] .tab.glow-2 { border-color: rgba(156,106,0,0.8); }
+  [data-theme="light"] .tab.glow-3 { border-color: #c24e00; }
+  .tab.tab-flash { animation: tabFlash 1.1s ease-out; }
+  @keyframes tabFlash {
+    0% { box-shadow: 0 0 0 1px rgba(255,176,32,0.9), 0 0 18px rgba(255,176,32,0.85); }
+    100% { box-shadow: 0 0 0 1px rgba(255,176,32,0), 0 0 0 rgba(255,176,32,0); }
+  }
+  .legend {
+    font-family: var(--mono); font-size: 11.5px; line-height: 1.5;
+    color: var(--ink-faint); margin: -6px 0 14px 2px;
+  }
+
+  /* Dash grids */
+  .dash { display: grid; gap: 14px; margin-bottom: 14px; }
+  .dash-top { grid-template-columns: 1.05fr 0.95fr 1.3fr; }
+  .dash-mid { grid-template-columns: 2fr 1fr; }
+  .dash-low { grid-template-columns: 1fr 1fr; }
+  @media (max-width: 920px) { .dash-top, .dash-mid, .dash-low { grid-template-columns: 1fr; } }
+  .dash .panel { margin-bottom: 0; }
+
+  /* Signal panel */
+  .badge {
+    font-family: var(--mono); font-size: 11px; font-weight: 700; text-transform: uppercase;
+    border-radius: 6px; padding: 5px 8px; border: 1px solid var(--amber);
+    color: var(--amber); background: var(--amber-bg); white-space: nowrap;
+  }
+  .sig-big {
+    font-family: var(--mono); font-size: clamp(76px, 11vw, 96px); font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1; margin: 6px 0 4px;
+  }
+  .sig-big.up { color: var(--up); text-shadow: 0 0 30px rgba(46,229,157,0.45); }
+  .sig-big.down { color: var(--amber); text-shadow: 0 0 30px rgba(255,176,32,0.45); }
+  .wait-big {
+    font-family: var(--mono); font-size: clamp(25px, 4.2vw, 33px); font-weight: 800;
+    line-height: 1.15; margin: 10px 0 8px;
+  }
+  .hold-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin: 10px 0 6px; }
+  .hold-bar > div { height: 100%; background: var(--teal); }
+  .sig-note { font-size: 13.5px; color: var(--ink-dim); line-height: 1.55; }
+  .raw-row {
+    border-top: 1px dashed var(--line); margin-top: 12px; padding-top: 10px;
+    font-size: 13.5px; color: var(--ink-dim);
+  }
+  .sig-minis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+  @media (max-width: 520px) { .sig-minis { grid-template-columns: 1fr; } }
+
+  /* Gauge */
+  .gauge-wrap { text-align: center; }
+  .gauge-pct { font-family: var(--mono); font-size: 46px; font-weight: 800; line-height: 1; margin-top: -6px; }
+  .gauge-label { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); margin-top: 4px; }
+  .gauge-rows { margin-top: 12px; text-align: left; }
+  .gauge-rows .row { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line-soft); font-size: 13.5px; }
+  .gauge-rows .row span:first-child { color: var(--ink-dim); }
+  .gauge-rows .row span:last-child { font-family: var(--mono); font-weight: 700; }
+
+  /* Explainer */
+  .explainer-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px; }
+  @media (max-width: 640px) { .explainer-grid { grid-template-columns: 1fr; } }
+  .explainer-item h3 { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 4px; color: var(--ink); }
+  .explainer-item p { font-size: 13.5px; line-height: 1.55; color: var(--ink-dim); margin: 0; }
+  .warn-box {
+    border: 1px solid rgba(255,176,32,0.4); background: var(--amber-bg);
+    border-radius: 8px; padding: 11px 12px; margin-top: 14px; font-size: 13.5px; line-height: 1.55; color: var(--ink-dim);
+  }
+  .warn-box strong { font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; color: var(--amber); display: block; margin-bottom: 4px; }
+
+  /* How the line moved */
+  .lm-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+  @media (max-width: 520px) { .lm-stats { grid-template-columns: repeat(2, 1fr); } }
+  .lm-stat { background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: 8px; padding: 9px 12px; }
+  .lm-stat .k { font-family: var(--mono); font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); }
+  .lm-stat .v { font-family: var(--mono); font-size: 15px; font-weight: 700; margin-top: 2px; }
+  .lm-stat .v.up { color: var(--up); }
+  .lm-stat .v.down { color: var(--amber); }
+  .lm-note { font-size: 12px; color: var(--ink-faint); margin-top: 10px; }
+  .chart-box { overflow-x: auto; }
+  .settled-sub { border-top: 1px solid var(--line-soft); margin-top: 14px; padding-top: 12px; }
+  .lm-res {
+    font-family: var(--mono); font-size: 11px; font-weight: 700; text-transform: uppercase;
+    border-radius: 5px; padding: 4px 8px;
+  }
+  .lm-res.yes { color: var(--up); background: var(--up-bg); }
+  .lm-res.no { color: var(--amber); background: var(--amber-bg); }
+
+  /* Book / levels */
+  .book-row { display: grid; grid-template-columns: 64px 1fr 76px; gap: 8px; align-items: center; padding: 5px 0; border-top: 1px solid var(--line-soft); font-family: var(--mono); font-size: 13px; }
+  .book-row:first-of-type { border-top: none; }
+  .book-row .sz { text-align: right; color: var(--ink-dim); }
+  .sizebar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+  .sizebar > div { height: 100%; }
+  .sizebar.yes > div { background: var(--up); }
+  .sizebar.no > div { background: var(--amber); }
+  table.kv { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  table.kv th, table.kv td { text-align: left; padding: 6px 4px; border-top: 1px solid var(--line-soft); }
+  table.kv th { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); }
+  table.kv td.num { font-family: var(--mono); font-weight: 700; }
+  .kind-chip {
+    font-family: var(--mono); font-size: 10.5px; font-weight: 700; border: 1px solid var(--line);
+    border-radius: 5px; padding: 3px 7px; color: var(--ink-dim); white-space: nowrap;
+  }
+  .splitbar { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: var(--line); margin: 10px 0; }
+  .splitbar .yes { background: var(--up); }
+  .splitbar .no { background: var(--amber); }
+  .verdict { font-family: var(--mono); font-size: 23px; font-weight: 700; margin: 4px 0; }
+
+  /* Track record / entries */
+  .tr-cells { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
+  .tr-cell { background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: 8px; padding: 12px 8px; }
+  .tr-cell .v { font-family: var(--mono); font-size: 26px; font-weight: 800; }
+  .tr-cell .k { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-faint); margin-top: 2px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+  .chip {
+    font-family: var(--mono); font-size: 11px; font-weight: 700; text-transform: uppercase;
+    border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; color: var(--ink-dim);
+  }
+  .entry {
+    border-left: 3px solid var(--line); padding: 8px 10px; margin: 8px 0;
+    background: var(--row-bg); border-radius: 0 8px 8px 0; font-size: 13.5px;
+  }
+  .entry.win { border-left-color: var(--up); }
+  .entry.loss { border-left-color: var(--amber); }
+  .entry .meta { color: var(--ink-faint); font-size: 12px; font-family: var(--mono); }
+  .outcome { font-family: var(--mono); font-size: 11px; font-weight: 700; border-radius: 5px; padding: 3px 7px; }
+  .outcome.win { color: var(--up); background: var(--up-bg); }
+  .outcome.loss { color: var(--amber); background: var(--amber-bg); }
+  .outcome.pending { color: var(--amber); background: var(--amber-bg); }
+
+  /* Callouts */
+  .callout { border-left: 3px solid var(--teal); padding: 8px 10px; margin: 8px 0; background: var(--panel-2); border-radius: 0 8px 8px 0; }
+  .callout .meta { color: var(--ink-faint); font-size: 0.85rem; font-family: var(--mono); }
+
+  /* Pills */
   .pill {
-    display: inline-block; font-size: 0.8rem; border: 1px solid var(--border);
-    border-radius: 999px; padding: 2px 10px; margin-right: 6px; color: var(--muted);
+    display: inline-block; font-size: 0.8rem; border: 1px solid var(--line);
+    border-radius: 999px; padding: 2px 10px; margin-right: 6px; color: var(--ink-dim);
+    font-family: var(--mono); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
   }
-  .pill.vip { color: var(--orange); border-color: var(--orange); }
+  .pill.vip { color: var(--amber); border-color: var(--amber); }
   .pill.free { color: var(--teal); border-color: var(--teal); }
-  footer { color: var(--muted); font-size: 0.85rem; padding: 8px 0 24px; }
+
+  /* Glossary */
+  .glossary { display: grid; grid-template-columns: 1fr 1fr; gap: 0 32px; }
+  @media (max-width: 640px) { .glossary { grid-template-columns: 1fr; } }
+  .glossary .item { display: grid; grid-template-columns: 132px 1fr; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line-soft); }
+  @media (max-width: 520px) { .glossary .item { grid-template-columns: 1fr; gap: 2px; } }
+  .glossary dt { font-family: var(--mono); font-size: 12px; font-weight: 700; margin: 0; }
+  .glossary dd { font-size: 13.5px; line-height: 1.55; color: var(--ink-dim); margin: 0; }
+
+  /* Link card */
+  .link-card { display: block; text-decoration: none; color: var(--ink); cursor: pointer; }
+  .link-card:hover { border-color: var(--teal); }
+  .link-card .kicker { font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-dim); }
+  .link-card .title { font-size: 19px; font-weight: 700; margin: 4px 0; }
+  .link-card .title .arrow { color: var(--teal); }
+  .link-card .sub { font-size: 13.5px; color: var(--ink-dim); max-width: 640px; margin: 0; }
+
+  /* Footer / misc */
+  footer { color: var(--ink-faint); font-size: 13px; line-height: 1.6; padding: 18px 0 24px; border-top: 1px solid var(--line-soft); margin-top: 26px; }
   .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .stale {
+    border: 1px solid rgba(255,176,32,0.45); background: var(--amber-bg); border-radius: 8px;
+    padding: 10px 12px; font-size: 13.5px; color: var(--amber); margin-bottom: 14px;
+  }
+  .wake { text-align: center; padding: 34px 20px; }
+  .wake .spinner {
+    width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--line);
+    border-top-color: var(--up); margin: 0 auto 14px; animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .wake h2 { font-size: 19px; font-weight: 700; margin: 0 0 6px; }
+  .wake p { max-width: 420px; margin: 0 auto; font-size: 14px; color: var(--ink-dim); }
+  .wake .wait { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); margin-top: 10px; }
+  .big-price { font-family: var(--mono); font-size: 40px; font-weight: 800; line-height: 1.1; }
+  .toprow { display: grid; grid-template-columns: 44px 1fr 90px 130px; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line-soft); font-size: 13.5px; }
+  .toprow:first-of-type { border-top: none; }
+  .toprow .rank { font-family: var(--mono); font-weight: 700; color: var(--ink-faint); }
+  .toprow .t { font-weight: 600; }
+  .toprow .tk { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
+  .toprow .yes { font-family: var(--mono); font-weight: 700; text-align: right; }
+  .toprow .vol { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); text-align: right; }
+  @media (max-width: 640px) { .toprow { grid-template-columns: 32px 1fr 70px; } .toprow .vol { display: none; } }
   svg.spark { display: block; margin-top: 8px; }
-  .hidden { display: none; }
+  .star-btn { background: none; border: none; color: var(--ink-faint); font-size: 1.3rem; padding: 0 4px; margin: 0; cursor: pointer; }
+  .star-btn.on { color: var(--amber); }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>BTC Oracle Pro</h1>
+    <div class="brand-row">
+      <h1><span class="pulse-dot" id="pulse-dot"></span>BTC Oracle Pro</h1>
+      <button type="button" class="theme-btn" id="theme-btn">Light mode</button>
+    </div>
     <p class="tagline">The fifteen-minute BTC window, live. Paper only — this app never trades.</p>
+    <p class="feed-status" id="feed-status"><span class="dot"></span><span id="feed-status-text">Connecting to the live feed…</span></p>
   </header>
 
   <div class="banner">UNVALIDATED — v1 logic, no validated edge. Signals are paper-only until they pass 100+ paper trades plus out-of-sample validation. Not financial advice.</div>
 
   <!-- Auth -->
-  <section class="card" id="auth-card">
+  <section class="panel" id="auth-card">
     <div class="tabs">
       <button id="tab-signin" class="active" type="button">Sign in</button>
       <button id="tab-signup" type="button">Create account</button>
@@ -117,7 +418,7 @@
 
   <!-- App -->
   <section id="app-view" class="hidden">
-    <div class="card">
+    <div class="panel">
       <div class="row">
         <div>
           <span class="pill free" id="tier-pill">Free</span>
@@ -136,21 +437,58 @@
       </div>
     </div>
 
-    <div class="card" id="callouts-card">
-      <h2>Timely callouts</h2>
+    <div class="stale hidden" id="stale-banner">The feed hasn't answered in a bit. The numbers below are the last ones it sent — this page keeps retrying and will refresh them the moment it responds.</div>
+
+    <div class="panel" id="callouts-card">
+      <div class="panel-head"><h2 class="panel-title">Timely callouts</h2></div>
       <div id="callouts-body" class="muted">Loading…</div>
     </div>
 
-    <div id="markets"></div>
+    <div class="tablist" id="market-tabs" role="tablist" aria-label="Markets"></div>
+    <p class="legend" id="tab-legend">Glowing tab — amber = price moved 2× its usual wiggle from target · orange = 3× or more · a brief flash = a market flipped direction mid-window. Movement only, not a call. Gold's daily market lives inside the Gold tab. Polymarket BTC 5m and Broader Market have no feed here yet — they appear in neither tier.</p>
 
-    <div class="card">
-      <h2>Daily results note</h2>
+    <div id="panes">
+      <div class="panel wake" id="wake-panel">
+        <div class="spinner"></div>
+        <h2>Waking the feed</h2>
+        <p>The live feed runs on a free server that sleeps when idle. The first load can take up to a minute — this page keeps retrying on its own. Nothing here is shown until real numbers arrive.</p>
+        <p class="wait" id="wake-wait">waiting 0s · retrying automatically</p>
+      </div>
+    </div>
+
+    <div class="panel" id="not-served-panel">
+      <div class="panel-head"><h2 class="panel-title">Not served yet</h2></div>
+      <div id="not-served-body" class="muted">Polymarket BTC 5m and Broader Market have no feed in this API yet, so they appear in neither tier. They arrive with their own feeds later — nothing here stands in for them.</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2 class="panel-title">Daily results note</h2><span class="fresh">UNVALIDATED</span></div>
       <div id="results-body" class="muted">Loading…</div>
+    </div>
+
+    <a class="panel link-card" href="https://muse.ai/s/improving-predictions-wxf6fxfvxpgxyya/ed1YLNJXh6pUt8_GswYMHVnPzZ-0kHVqV5_s-NR97ZQ">
+      <div class="kicker">Improving predictions</div>
+      <div class="title">How the predictions get better <span class="arrow">→</span></div>
+      <p class="sub">The step-by-step plan for earning a better signal — testing book imbalance on captured data, adding faster inputs, and validating properly before anything counts. Nothing on that page changes the live signal until it has been tested and approved.</p>
+    </a>
+
+    <div class="panel">
+      <div class="panel-head"><h2 class="panel-title">Glossary — words used on this page</h2></div>
+      <div class="glossary">
+        <div class="item"><dt>Target</dt><dd>The line price has to beat at the window close. It is the 60-second average price in the minute before the window opened.</dd></div>
+        <div class="item"><dt>Sigma (σ)</dt><dd>The market's usual 1-minute wiggle — how much it normally moves in one minute. Moves are judged against it: 2× sigma is a big move for that market, 3× sigma is bigger still.</dd></div>
+        <div class="item"><dt>Cone</dt><dd>The shaded band on the window chart: the target plus and minus one sigma (±1σ), projected to the close. A rough range for normal wiggle, not a guarantee.</dd></div>
+        <div class="item"><dt>Held call</dt><dd>A call whose direction stayed the same for 3 straight minutes in this window. Without that, the page says no held call and the market is choppy.</dd></div>
+        <div class="item"><dt>ENTER / WAIT</dt><dd>ENTER appears only when confidence is 60 or higher and the call has held steady. WAIT means no call right now.</dd></div>
+        <div class="item"><dt>Book imbalance</dt><dd>Which side of the Kalshi order book — YES or NO — has more contracts stacked on it right now. Shown for display only; it does not feed the signal.</dd></div>
+        <div class="item"><dt>YES price</dt><dd>What the market charges for the YES side, in cents. It is the market's own price for "price finishes above target" — for example, 62¢ reads like the market pricing that outcome around 62%. It is the market's price, not the Pulse signal.</dd></div>
+      </div>
     </div>
   </section>
 
   <footer>
-    18+ only. BTC Oracle Pro is a data display, not financial advice. Every signal is UNVALIDATED v1 logic. All results are published, wins and losses. No money is held here, and nothing here places a trade.
+    18+ only. BTC Oracle Pro is a data display, not financial advice. Every signal is UNVALIDATED v1 logic. All results are published, wins and losses. No money is held here, and nothing here places a trade.<br>
+    How the predictions get better: <a href="https://muse.ai/s/improving-predictions-wxf6fxfvxpgxyya/ed1YLNJXh6pUt8_GswYMHVnPzZ-0kHVqV5_s-NR97ZQ">Improving Predictions</a>.
   </footer>
 </div>
 
@@ -161,6 +499,17 @@ const MARKET_LABELS = {
   gold_15m: "Gold · 15 min", sol_15m: "SOL · 15 min", xrp_15m: "XRP · 15 min",
   doge_15m: "DOGE · 15 min", bnb_15m: "BNB · 15 min", silver_15m: "Silver · 15 min",
 };
+const TAB_DEFS = [
+  { key: "btc_15m", label: "BTC", sub: "15-minute window", series: "KXBTC15M", signal: true },
+  { key: "eth_15m", label: "ETH", sub: "15-minute window", series: "KXETH15M", signal: true },
+  { key: "gold", label: "Gold", sub: "15-minute window", series: "KXGOLD15M", signal: false, dailyKey: "gold", windowKey: "gold_15m" },
+  { key: "sol_15m", label: "SOL", sub: "15-minute window", series: "KXSOL15M", signal: false },
+  { key: "xrp_15m", label: "XRP", sub: "15-minute window", series: "KXXRP15M", signal: false },
+  { key: "doge_15m", label: "DOGE", sub: "15-minute window", series: "KXDOGE15M", signal: false },
+  { key: "bnb_15m", label: "BNB", sub: "15-minute window", series: "KXBNB15M", signal: false },
+  { key: "silver_15m", label: "Silver", sub: "15-minute window", series: "KXSILVER15M", signal: false },
+  { key: "top", label: "Top Markets", sub: "Kalshi · by volume", series: null, signal: false },
+];
 const CANDLE_SERIES = {
   btc_15m: "KXBTC15M", eth_15m: "KXETH15M", gold_15m: "KXGOLD15M",
   sol_15m: "KXSOL15M", xrp_15m: "KXXRP15M", doge_15m: "KXDOGE15M",
@@ -168,6 +517,21 @@ const CANDLE_SERIES = {
 };
 let mode = "signin";
 let me = null;
+let liveData = null;
+let lastLiveAt = 0;
+let activeTab = "btc_15m";
+let tabs = [];
+let held = {};       // key -> {ticker, dir, since}
+let lastAbove = {};  // key -> boolean (for flip flash)
+let candlesCache = {};
+let recordsCache = {};
+let entriesCache = null;
+let windowsCache = null;
+let signalsCache = null;
+let topMarketsCache = null;
+let wakeStartedAt = Date.now();
+let liveTimer = null;
+let slowTimer = null;
 
 function getWatchlist() {
   try { return JSON.parse(localStorage.getItem("btc-oracle-watchlist") || "[]"); }
@@ -176,15 +540,38 @@ function getWatchlist() {
 function setWatchlist(list) {
   localStorage.setItem("btc-oracle-watchlist", JSON.stringify(list));
 }
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
 function fmtUsd(v, spot) {
   if (v === null || v === undefined) return "—";
   const d = spot && spot < 1 ? 6 : spot && spot < 10 ? 4 : 2;
   return "$" + Number(v).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
 }
+function fmtPct(v, digits) {
+  if (v === null || v === undefined) return "—";
+  return (v >= 0 ? "+" : "") + Number(v).toFixed(digits === undefined ? 2 : digits) + "%";
+}
+function fmtTimeET(iso) {
+  try {
+    return new Date(iso).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
+  } catch (e) { return ""; }
+}
+function fmtDateET(iso) {
+  try {
+    return new Date(iso).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" });
+  } catch (e) { return ""; }
+}
+function agoText(ts) {
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (s < 5) return "just now";
+  if (s < 60) return s + "s ago";
+  return Math.floor(s / 60) + "m ago";
+}
 function sparklineSVG(candles) {
   if (!candles || candles.length < 2) return "";
   const closes = candles.map(c => c.c);
-  const min = Math.min(...closes), max = Math.max(...closes);
+  const min = Math.min.apply(null, closes), max = Math.max.apply(null, closes);
   const w = 260, h = 44, pad = 3;
   const range = (max - min) || 1;
   const pts = closes.map((c, i) => {
@@ -210,7 +597,28 @@ async function api(path, opts) {
 }
 function showError(el, err) { el.textContent = err.message; el.classList.remove("hidden"); }
 function hideError(el) { el.textContent = ""; el.classList.add("hidden"); }
+function setFeedStatus(text, warn) {
+  $("feed-status-text").textContent = text;
+  $("feed-status").classList.toggle("warn", !!warn);
+}
 
+/* ---- theme ---- */
+function applyTheme(t) {
+  document.documentElement.setAttribute("data-theme", t);
+  $("theme-btn").textContent = t === "light" ? "Dark mode" : "Light mode";
+  try { localStorage.setItem("btc-oracle-theme", t); } catch (e) {}
+}
+(function initTheme() {
+  let t = "dark";
+  try { t = localStorage.getItem("btc-oracle-theme") || "dark"; } catch (e) {}
+  applyTheme(t === "light" ? "light" : "dark");
+})();
+$("theme-btn").addEventListener("click", () => {
+  const cur = document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+  applyTheme(cur === "light" ? "dark" : "light");
+});
+
+/* ---- auth (unchanged behavior) ---- */
 function setMode(m) {
   mode = m;
   $("tab-signin").classList.toggle("active", m === "signin");
@@ -220,110 +628,57 @@ function setMode(m) {
   $("password").setAttribute("autocomplete", m === "signin" ? "current-password" : "new-password");
   hideError($("auth-error"));
 }
-
-async function loadCallouts() {
-  const body = $("callouts-body");
+$("tab-signin").addEventListener("click", () => setMode("signin"));
+$("tab-signup").addEventListener("click", () => setMode("signup"));
+$("auth-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const btn = $("auth-submit");
+  btn.disabled = true;
+  hideError($("auth-error"));
   try {
-    const data = await api("/app/callouts");
-    if (!data.callouts || !data.callouts.length) {
-      body.textContent = "No actionable callouts right now. A callout appears when an ENTER signal is logged at minute 9 or earlier.";
-      return;
-    }
-    body.innerHTML = data.callouts.map(c => {
-      const out = c.outcome === "win" ? "held for a win" : c.outcome === "loss" ? "did not hold" : "still open";
-      return '<div class="callout"><strong>' + c.series + ' ' + c.direction + '</strong> — '
-        + c.confidence_pct + '% confidence, minute ' + c.minute
-        + ' <span class="meta">(' + c.window + ' · ' + out + ')</span><br>'
-        + '<span class="muted">' + c.reason + '</span></div>';
-    }).join("");
-  } catch (err) {
-    if (err.status === 403) {
-      body.innerHTML = "<strong>Callouts are a VIP feature.</strong><br>" + err.message
-        + "<br><span class='muted'>Free accounts see the live windows and signals below and can watch for a call themselves.</span>";
+    const payload = { email: $("email").value, password: $("password").value };
+    if (mode === "signup") {
+      payload.age_confirm = $("age-confirm").checked;
+      await api("/auth/signup", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
     } else {
-      body.textContent = "Callouts could not be loaded: " + err.message;
+      await api("/auth/login", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
     }
-  }
-}
-
-async function loadMarkets() {
-  const data = await api("/app/live");
-  const keys = Object.keys(data.markets || {});
-  const starred = getWatchlist();
-  keys.sort((a, b) => (starred.includes(b) ? 1 : 0) - (starred.includes(a) ? 1 : 0));
-  const host = $("markets");
-  host.innerHTML = "";
-  for (const key of keys) {
-    const m = data.markets[key];
-    const div = document.createElement("div");
-    div.className = "market";
-    const spot = m.spot_usd;
-    const sig = m.signal;
-    const vs = m.spot_vs_target_usd;
-    const vsClass = (vs === null || vs === undefined) ? "" : (vs >= 0 ? "up" : "down");
-    const vsText = (vs === null || vs === undefined) ? "—" : (vs >= 0 ? "+" : "") + fmtUsd(vs, spot) + " vs target";
-    div.innerHTML =
-      '<div class="head"><span class="name">' + (MARKET_LABELS[key] || key) + '</span>'
-      + '<button type="button" class="star' + (starred.includes(key) ? " on" : "") + '" aria-label="Star this market">★</button></div>'
-      + '<div class="big">' + fmtUsd(spot, spot) + '</div>'
-      + '<div class="muted">Target ' + fmtUsd(m.target_usd, spot)
-      + (m.target_provisional ? " (provisional)" : "")
-      + ' · <span class="' + vsClass + '">' + vsText + '</span></div>'
-      + (sig
-        ? '<div class="signal">' + sig.direction + ' · ' + sig.confidence_pct + '% confidence</div>'
-          + '<div class="muted">' + sig.status + '</div>'
-        : '<div class="muted">' + (m.signal_note || "No signal for this market.") + '</div>')
-      + '<div class="spark-host" data-series="' + (CANDLE_SERIES[key] || "") + '"></div>';
-    div.querySelector(".star").addEventListener("click", (ev) => {
-      const list = getWatchlist();
-      const i = list.indexOf(key);
-      if (i >= 0) list.splice(i, 1); else list.push(key);
-      setWatchlist(list);
-      ev.target.classList.toggle("on", i < 0);
-    });
-    host.appendChild(div);
-    const series = CANDLE_SERIES[key];
-    if (series) {
-      fetch("/candles?series=" + series, { credentials: "same-origin" })
-        .then(r => r.json())
-        .then(d => {
-          const el = div.querySelector(".spark-host");
-          if (el && d.candles && d.candles.length > 1) {
-            const first = d.candles[0].c, last = d.candles[d.candles.length - 1].c;
-            const pct = first ? ((last - first) / first * 100) : 0;
-            el.innerHTML = sparklineSVG(d.candles)
-              + '<div class="muted">Last hour: ' + (pct >= 0 ? "+" : "") + pct.toFixed(2) + '%</div>';
-          }
-        })
-        .catch(() => {});
-    }
-  }
-  if (!keys.length) host.innerHTML = '<div class="card muted">No live windows right now.</div>';
-}
-
-async function loadResults() {
-  const body = $("results-body");
-  try {
-    const [btc, eth, entries] = await Promise.all([
-      api("/track-record?series=KXBTC15M"),
-      api("/track-record?series=KXETH15M"),
-      api("/entries?limit=5"),
-    ]);
-    const line = (r) => r.series + ": " + r.windows_settled + " settled, " + r.signals_correct
-      + " correct" + (r.win_rate_pct !== null ? " (" + r.win_rate_pct + "%)" : "");
-    let html = "<p>" + line(btc) + "<br>" + line(eth) + "</p>"
-      + "<p class='muted'>UNVALIDATED — needs 100+ paper trades + out-of-sample validation. "
-      + "<a href='/track-record' style='color: var(--teal);'>Full track record</a></p>";
-    if (entries && entries.length) {
-      html += "<p>Latest entry alerts:</p>" + entries.map(e =>
-        "<div>• " + e.series + " " + e.direction + " " + e.confidence_pct + "% — " + e.outcome + "</div>"
-      ).join("");
-    }
-    body.innerHTML = html;
+    await refresh();
   } catch (err) {
-    body.textContent = "Results could not be loaded: " + err.message;
+    showError($("auth-error"), err);
+  } finally {
+    btn.disabled = false;
   }
-}
+});
+$("logout-btn").addEventListener("click", async () => {
+  try { await api("/auth/logout", { method: "POST" }); } catch (e) {}
+  me = null;
+  liveData = null;
+  if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+  if (slowTimer) { clearInterval(slowTimer); slowTimer = null; }
+  $("app-view").classList.add("hidden");
+  $("auth-card").classList.remove("hidden");
+  setFeedStatus("Connecting to the live feed…", false);
+});
+$("portal-btn").addEventListener("click", async () => {
+  const btn = $("portal-btn");
+  btn.disabled = true;
+  hideError($("portal-error"));
+  try {
+    const data = await api("/billing/portal", { method: "POST" });
+    window.open(data.url, "_blank");
+  } catch (err) {
+    showError($("portal-error"), err);
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 async function refresh() {
   try {
@@ -360,56 +715,688 @@ async function refresh() {
   } else {
     subBlock.classList.add("hidden");
   }
-  await Promise.all([loadCallouts(), loadMarkets(), loadResults()]);
+  wakeStartedAt = Date.now();
+  await Promise.all([loadCallouts(), refreshLive(), refreshSlow(true)]);
+  if (!liveTimer) liveTimer = setInterval(refreshLive, 5000);
+  if (!slowTimer) slowTimer = setInterval(() => refreshSlow(false), 60000);
 }
 
-$("tab-signin").addEventListener("click", () => setMode("signin"));
-$("tab-signup").addEventListener("click", () => setMode("signup"));
-$("auth-form").addEventListener("submit", async (ev) => {
-  ev.preventDefault();
-  const btn = $("auth-submit");
-  btn.disabled = true;
-  hideError($("auth-error"));
+/* ---- callouts (VIP only; free sees the locked message) ---- */
+async function loadCallouts() {
+  const body = $("callouts-body");
   try {
-    const payload = { email: $("email").value, password: $("password").value };
-    if (mode === "signup") {
-      payload.age_confirm = $("age-confirm").checked;
-      await api("/auth/signup", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-    } else {
-      await api("/auth/login", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+    const data = await api("/app/callouts");
+    if (!data.callouts || !data.callouts.length) {
+      body.textContent = "No actionable callouts right now. A callout appears when an ENTER signal is logged at minute 9 or earlier.";
+      return;
     }
-    await refresh();
+    body.innerHTML = data.callouts.map(c => {
+      const out = c.outcome === "win" ? "held for a win" : c.outcome === "loss" ? "did not hold" : "still open";
+      return '<div class="callout"><strong>' + esc(c.series) + ' ' + esc(c.direction) + '</strong> — '
+        + esc(c.confidence_pct) + '% confidence, minute ' + esc(c.minute)
+        + ' <span class="meta">(' + esc(c.window) + ' · ' + out + ')</span><br>'
+        + '<span class="muted">' + esc(c.reason) + '</span></div>';
+    }).join("");
   } catch (err) {
-    showError($("auth-error"), err);
-  } finally {
-    btn.disabled = false;
+    if (err.status === 403) {
+      body.innerHTML = "<strong>Callouts are a VIP feature.</strong><br>" + esc(err.message)
+        + "<br><span class='muted'>Free accounts see the live windows and signals below and can watch for a call themselves.</span>";
+    } else {
+      body.textContent = "Callouts could not be loaded: " + err.message;
+    }
   }
-});
-$("logout-btn").addEventListener("click", async () => {
-  try { await api("/auth/logout", { method: "POST" }); } catch (e) {}
-  me = null;
-  $("app-view").classList.add("hidden");
-  $("auth-card").classList.remove("hidden");
-});
-$("portal-btn").addEventListener("click", async () => {
-  const btn = $("portal-btn");
-  btn.disabled = true;
-  hideError($("portal-error"));
+}
+
+/* ---- live data + tabs ---- */
+function marketOf(def) {
+  if (!liveData || !liveData.markets) return null;
+  if (def.key === "gold") return liveData.markets[def.windowKey] || null;
+  return liveData.markets[def.key] || null;
+}
+function dailyGold() {
+  return (liveData && liveData.markets && liveData.markets.gold) || null;
+}
+function glowLevel(m) {
+  if (!m) return 0;
+  const sig = m.sigma_1m_usd;
+  const dist = m.spot_vs_target_usd;
+  if (sig === null || sig === undefined || !sig || dist === null || dist === undefined) return 0;
+  const x = Math.abs(dist) / sig;
+  if (x >= 3) return 3;
+  if (x >= 2) return 2;
+  return 0;
+}
+function buildTabs() {
+  const starred = getWatchlist();
+  const defs = [];
+  TAB_DEFS.forEach((d) => {
+    if (d.key === "top") {
+      if (liveData && liveData.top_markets) defs.push(d);
+      return;
+    }
+    if (d.key === "gold") {
+      if (liveData && liveData.markets && (liveData.markets.gold_15m || liveData.markets.gold)) defs.push(d);
+      return;
+    }
+    if (liveData && liveData.markets && liveData.markets[d.key]) defs.push(d);
+  });
+  // Starred market tabs sort first (device-only watchlist), keeping Pulse order otherwise.
+  defs.sort((a, b) => {
+    const sa = a.key === "top" ? 0 : (starred.includes(a.key) ? 1 : 0);
+    const sb = b.key === "top" ? 0 : (starred.includes(b.key) ? 1 : 0);
+    return sb - sa;
+  });
+  tabs = defs;
+  if (!tabs.some(t => t.key === activeTab)) activeTab = tabs.length ? tabs[0].key : "btc_15m";
+}
+function renderTabs() {
+  const host = $("market-tabs");
+  host.innerHTML = "";
+  tabs.forEach((d) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "tab";
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", d.key === activeTab ? "true" : "false");
+    const starred = getWatchlist().includes(d.key);
+    b.innerHTML = esc(d.label) + (d.key !== "top"
+      ? '<span class="star-tab' + (starred ? " on" : "") + '" data-star="' + esc(d.key) + '" title="Star this market">★</span>'
+      : "") + "<small>" + esc(d.sub) + "</small>";
+    const m = marketOf(d);
+    const g = d.key === "top" ? 0 : glowLevel(m);
+    if (g === 2) b.classList.add("glow-2");
+    if (g === 3) b.classList.add("glow-3");
+    b.addEventListener("click", (ev) => {
+      if (ev.target && ev.target.getAttribute && ev.target.getAttribute("data-star")) {
+        const key = ev.target.getAttribute("data-star");
+        const list = getWatchlist();
+        const i = list.indexOf(key);
+        if (i >= 0) list.splice(i, 1); else list.push(key);
+        setWatchlist(list);
+        buildTabs();
+        renderTabs();
+        renderPane(activeTab);
+        ev.stopPropagation();
+        return;
+      }
+      activeTab = d.key;
+      renderTabs();
+      renderPane(activeTab);
+    });
+    host.appendChild(b);
+  });
+}
+function updateHeldAndFlash() {
+  const now = Date.now();
+  tabs.forEach((d) => {
+    if (!d.signal) return;
+    const m = marketOf(d);
+    if (!m || !m.market || !m.signal) return;
+    const ticker = m.market.ticker;
+    const dir = m.signal.direction;
+    const above = m.above_target;
+    const h = held[d.key];
+    if (!h || h.ticker !== ticker) {
+      held[d.key] = { ticker: ticker, dir: dir, since: now };
+    } else if (h.dir !== dir) {
+      held[d.key] = { ticker: ticker, dir: dir, since: now };
+    }
+    if (lastAbove[d.key] !== undefined && lastAbove[d.key] !== above) {
+      const btn = document.querySelector('#market-tabs .tab[aria-selected="true"]');
+      const tabBtns = document.querySelectorAll("#market-tabs .tab");
+      tabBtns.forEach((tb) => {
+        if (tb.textContent.indexOf(d.label) === 0) {
+          tb.classList.remove("tab-flash");
+          void tb.offsetWidth;
+          tb.classList.add("tab-flash");
+        }
+      });
+      void btn;
+    }
+    lastAbove[d.key] = above;
+  });
+}
+async function refreshLive() {
   try {
-    const data = await api("/billing/portal", { method: "POST" });
-    window.open(data.url, "_blank");
+    const data = await api("/app/live");
+    liveData = data;
+    lastLiveAt = Date.now();
+    $("stale-banner").classList.add("hidden");
+    const wake = $("wake-panel");
+    if (wake) wake.remove();
+    if (data.not_served_yet && data.not_served_yet.length) {
+      $("not-served-body").textContent = (data.not_served_note || "")
+        + " Not served yet: " + data.not_served_yet.join(", ") + ".";
+    }
+    const asOf = (data.markets && data.markets.btc_15m && data.markets.btc_15m.as_of)
+      || (data.markets && data.markets.eth_15m && data.markets.eth_15m.as_of);
+    const updated = asOf ? agoText(new Date(asOf).getTime()) : agoText(lastLiveAt);
+    setFeedStatus("Live · updated " + updated, false);
+    buildTabs();
+    updateHeldAndFlash();
+    renderTabs();
+    renderPane(activeTab);
   } catch (err) {
-    showError($("portal-error"), err);
-  } finally {
-    btn.disabled = false;
+    setFeedStatus("The feed hasn't answered in a bit", true);
+    $("stale-banner").classList.remove("hidden");
+    const w = $("wake-wait");
+    if (w) w.textContent = "waiting " + Math.round((Date.now() - wakeStartedAt) / 1000) + "s · retrying automatically";
   }
-});
+}
+async function refreshSlow(first) {
+  const jobs = [];
+  jobs.push(fetch("/candles?series=KXBTC15M", { credentials: "same-origin" }).then(r => r.json()).then(d => { candlesCache.KXBTC15M = d.candles || []; }).catch(() => {}));
+  jobs.push(fetch("/candles?series=KXETH15M", { credentials: "same-origin" }).then(r => r.json()).then(d => { candlesCache.KXETH15M = d.candles || []; }).catch(() => {}));
+  jobs.push(api("/track-record?series=KXBTC15M").then(d => { recordsCache.KXBTC15M = d; }).catch(() => {}));
+  jobs.push(api("/track-record?series=KXETH15M").then(d => { recordsCache.KXETH15M = d; }).catch(() => {}));
+  jobs.push(api("/entries?limit=50").then(d => { entriesCache = d || []; }).catch(() => {}));
+  jobs.push(api("/windows?limit=10").then(d => { windowsCache = d || []; }).catch(() => {}));
+  jobs.push(api("/signals?limit=20").then(d => { signalsCache = d || []; }).catch(() => {}));
+  if (!topMarketsCache && liveData && !liveData.top_markets) {
+    jobs.push(fetch("/top-markets", { credentials: "same-origin" }).then(r => r.json()).then(d => { topMarketsCache = d; }).catch(() => {}));
+  }
+  await Promise.all(jobs);
+  if (liveData) renderPane(activeTab);
+  if (first) loadResults();
+}
+
+/* ---- pane rendering ---- */
+function windowBounds(def, m) {
+  if (windowsCache) {
+    const w = windowsCache.find(x => x.ticker === (m.market && m.market.ticker));
+    if (w) return { open: new Date(w.opened).getTime(), close: new Date(w.closed).getTime(), target: w.target_usd };
+  }
+  const min = (m.market && m.market.minute_of_15) || 0;
+  const close = Date.now() + ((m.market && m.market.closes_in_seconds) || 0) * 1000;
+  return { open: close - 900000, close: close, target: m.target_usd };
+}
+async function ensureCandles(series) {
+  const c = candlesCache[series];
+  if (c && c.at && (Date.now() - c.at < 60000)) return c.candles;
+  try {
+    const d = await fetch("/candles?series=" + series, { credentials: "same-origin" }).then(r => r.json());
+    candlesCache[series] = { at: Date.now(), candles: d.candles || [] };
+    return candlesCache[series].candles;
+  } catch (e) { return (c && c.candles) || []; }
+}
+function candlesInWindow(candles, open, close) {
+  return (candles || []).filter(c => c.t * 1000 >= open && c.t * 1000 < close);
+}
+function explainerHTML(signalMarket) {
+  if (!signalMarket) {
+    return '<div class="panel"><div class="panel-head"><h2 class="panel-title">What you are looking at</h2><span class="fresh">no signal on this tab</span></div>'
+      + '<p class="sig-note">This tab has no Pulse signal — it shows the live window only. A signal for this market needs its own strategy and validation run.</p>'
+      + '<div class="explainer-grid">'
+      + '<div class="explainer-item"><h3>Sigma (σ) — usual wiggle</h3><p>How much this market usually moves in 1 minute — its usual 1-minute wiggle. This page uses it to judge whether a move is small or large for this market.</p></div>'
+      + '<div class="explainer-item"><h3>Cone on the chart</h3><p>The shaded band on the chart. It is the target plus and minus one sigma (±1σ) — a rough range for normal wiggle, not a guarantee.</p></div>'
+      + '<div class="explainer-item"><h3>UP / DOWN here</h3><p>On this tab, above or below target is just where price sits right now. There is no UP or DOWN call, no confidence %, and no ENTER / WAIT here.</p></div>'
+      + '</div></div>';
+  }
+  return '<div class="panel"><div class="panel-head"><h2 class="panel-title">What the signal means</h2><span class="badge">Unvalidated</span></div>'
+    + '<p class="sig-note">A quick read of this tab in plain English — what each word and number below is actually saying.</p>'
+    + '<div class="explainer-grid">'
+    + '<div class="explainer-item"><h3>UP / DOWN</h3><p>The call for where price finishes when the window closes. UP means price finishes above its target. DOWN means price finishes below its target.</p></div>'
+    + '<div class="explainer-item"><h3>Confidence %</h3><p>How far price sits from target compared with this market\'s usual 1-minute wiggle. Higher means further from target right now — not a promise that it stays there.</p></div>'
+    + '<div class="explainer-item"><h3>ENTER / WAIT</h3><p>ENTER appears only when confidence is 60 or higher and the call has held steady. WAIT means no call right now.</p></div>'
+    + '<div class="explainer-item"><h3>Held call</h3><p>The direction stayed the same for 3 straight minutes in this window. If it has not, the page says no held call — the market is choppy — instead of flipping with every change.</p></div>'
+    + '<div class="explainer-item"><h3>Sigma (σ) — usual wiggle</h3><p>How much this market usually moves in 1 minute — its usual 1-minute wiggle. This page uses it to judge whether a move is small or large for this market.</p></div>'
+    + '<div class="explainer-item"><h3>Cone on the chart</h3><p>The shaded band on the chart. It is the target plus and minus one sigma (±1σ) — a rough range for normal wiggle, not a guarantee.</p></div>'
+    + '</div>'
+    + '<div class="warn-box"><strong>What the signal is not</strong>This signal is UNVALIDATED — it has not finished testing. It is not financial advice and not a recommendation to trade. A high confidence % is not a guarantee — price can cross back before the window closes.</div>'
+    + '</div>';
+}
+function signalPanelHTML(def, m) {
+  const sig = m.signal;
+  if (!sig) {
+    return '<div class="panel"><div class="panel-head"><h2 class="panel-title">Signal · 15-minute ' + esc(def.label) + '</h2><span class="badge">Unvalidated</span></div>'
+      + '<p class="sig-note">' + esc(m.signal_note || ("No " + def.label + " signal — this tab shows the live window, target and the market's own price. A signal needs its own strategy and validation run.")) + '</p></div>';
+  }
+  const h = held[def.key] || null;
+  const heldMs = h ? (Date.now() - h.since) : 0;
+  const isHeld = h && heldMs >= 180000 && h.dir === sig.direction;
+  const heldLabel = Math.floor(Math.min(heldMs, 180000) / 1000);
+  const heldMMSS = Math.floor(heldLabel / 60) + ":" + String(heldLabel % 60).padStart(2, "0");
+  const minute = (m.market && m.market.minute_of_15 !== undefined && m.market.minute_of_15 !== null)
+    ? Math.floor(m.market.minute_of_15) : "—";
+  const dirClass = sig.direction === "UP" ? "up" : "down";
+  let head;
+  if (isHeld) {
+    head = '<div class="sig-big ' + dirClass + '">' + esc(sig.direction) + '</div>'
+      + '<p class="sig-note">Held call — ' + esc(sig.direction) + ' has held for 3:00 in this window.</p>';
+  } else {
+    const pct = Math.min(100, Math.round((heldMs / 180000) * 100));
+    head = '<div class="wait-big">WAIT — no held call</div>'
+      + '<div class="hold-bar"><div style="width:' + pct + '%"></div></div>'
+      + '<p class="sig-note">Raw v1 is ' + esc(sig.direction) + ' · held ' + heldMMSS + ' of 3:00 · minute ' + esc(minute) + ' of 15</p>';
+  }
+  const sigmaTxt = (m.sigma_1m_usd === null || m.sigma_1m_usd === undefined) ? "—" : fmtUsd(m.sigma_1m_usd, m.spot_usd);
+  const closesIn = (m.market && m.market.closes_in_seconds !== undefined && m.market.closes_in_seconds !== null)
+    ? Math.max(0, Math.round(m.market.closes_in_seconds)) + "s" : "—";
+  return '<div class="panel"><div class="panel-head"><h2 class="panel-title">Signal</h2><span class="badge">Unvalidated</span></div>'
+    + head
+    + '<div class="raw-row">Raw v1 signal · live · unfiltered — ' + esc(sig.direction) + ' · ' + esc(sig.confidence_pct) + '% confidence</div>'
+    + '<div class="sig-minis">'
+    + '<div class="mini"><div class="k">Spot</div><div class="v">' + esc(fmtUsd(m.spot_usd, m.spot_usd)) + '</div></div>'
+    + '<div class="mini"><div class="k">Closes in</div><div class="v">' + esc(closesIn) + '</div></div>'
+    + '<div class="mini"><div class="k">1-min σ</div><div class="v">' + esc(sigmaTxt) + '</div></div>'
+    + '</div>'
+    + '<p class="sig-note" style="margin-top:12px;">The verdict at the top of this panel is the only call this page makes on this tab: a held call is the same unvalidated v1 signal, shown only after one direction holds for 3:00 inside this window. The raw v1 read underneath is shown for the record — unfiltered, but not the call. Still UNVALIDATED — a steadier display, never a validated call.</p>'
+    + '</div>';
+}
+function gaugeHTML(def, m) {
+  const sig = m.signal;
+  if (!sig) return "";
+  const conf = sig.confidence_pct;
+  const modelUp = sig.direction === "UP" ? conf : 100 - conf;
+  const modelDown = 100 - modelUp;
+  const book = m.kalshi_book || {};
+  const yesMid = (book.yes_bid_cents !== undefined && book.yes_ask_cents !== undefined)
+    ? (book.yes_bid_cents + book.yes_ask_cents) / 2 : null;
+  const impliedYes = yesMid === null ? null : yesMid;
+  const impliedNo = impliedYes === null ? null : 100 - impliedYes;
+  const showBlend = impliedYes !== null && Math.abs(modelUp - impliedYes) <= 20;
+  const blended = showBlend ? ((modelUp + impliedYes) / 2) : null;
+  return '<div class="panel"><div class="panel-head"><h2 class="panel-title">Confidence</h2></div>'
+    + '<div class="gauge-wrap">'
+    + '<svg width="200" height="112" viewBox="0 0 200 112">'
+    + '<defs><linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="0">'
+    + '<stop offset="0%" stop-color="#ff6a1a"/><stop offset="45%" stop-color="#ffb020"/><stop offset="100%" stop-color="#2dd4bf"/>'
+    + '</linearGradient></defs>'
+    + '<path d="M 10 100 A 90 90 0 0 1 190 100" fill="none" style="stroke:var(--line)" stroke-width="13" stroke-linecap="round" pathLength="100" stroke-dasharray="100 100"/>'
+    + '<path d="M 10 100 A 90 90 0 0 1 190 100" fill="none" stroke="url(#gaugeGrad)" stroke-width="13" stroke-linecap="round" pathLength="100" stroke-dasharray="' + conf + ' 100"/>'
+    + '</svg>'
+    + '<div class="gauge-pct">' + esc(conf) + '%</div>'
+    + '<div class="gauge-label">Model prob · ' + esc(sig.direction) + '</div>'
+    + '</div>'
+    + '<div class="gauge-rows">'
+    + '<div class="row"><span>Model P(UP)</span><span>' + modelUp.toFixed(1) + '%</span></div>'
+    + '<div class="row"><span>Model P(DOWN)</span><span>' + modelDown.toFixed(1) + '%</span></div>'
+    + (impliedYes !== null
+      ? '<div class="row"><span>Kalshi implied P(YES)</span><span>' + impliedYes.toFixed(1) + '%</span></div>'
+        + '<div class="row"><span>Kalshi implied P(NO)</span><span>' + impliedNo.toFixed(1) + '%</span></div>'
+      : '<div class="row"><span>Kalshi implied P</span><span>—</span></div>')
+    + (showBlend ? '<div class="row"><span>Blended — plain average</span><span>' + blended.toFixed(1) + '% YES</span></div>' : '')
+    + '</div></div>';
+}
+function telemetryHTML(m) {
+  const book = m.kalshi_book || {};
+  const cell = (k, v) => '<div class="mini"><div class="k">' + k + '</div><div class="v">' + esc(v) + '</div></div>';
+  const age = m.as_of ? agoText(new Date(m.as_of).getTime()) : "—";
+  const status = book.status || "—";
+  return '<div class="panel"><div class="panel-head"><h2 class="panel-title">Kalshi live telemetry</h2><span class="fresh">' + esc(status) + '</span></div>'
+    + '<div class="sig-minis" style="grid-template-columns:repeat(2,1fr);">'
+    + cell("YES bid", book.yes_bid_cents !== undefined ? book.yes_bid_cents + "¢" : "—")
+    + cell("YES ask", book.yes_ask_cents !== undefined ? book.yes_ask_cents + "¢" : "—")
+    + cell("NO bid", book.no_bid_cents !== undefined ? book.no_bid_cents + "¢" : "—")
+    + cell("NO ask", book.no_ask_cents !== undefined ? book.no_ask_cents + "¢" : "—")
+    + '</div>'
+    + '<p class="sig-note" style="margin-top:10px;">Book updated ' + esc(age) + '. The order book is display only — it does not feed the signal.</p>'
+    + '</div>';
+}
+function momentumHTML(m) {
+  const sig = m.sigma_1m_usd;
+  const dist = m.spot_vs_target_usd;
+  let body;
+  if (sig === null || sig === undefined || !sig || dist === null || dist === undefined) {
+    body = '<p class="sig-note">Spot is ' + esc(fmtUsd(m.spot_usd, m.spot_usd)) + ' against a target of ' + esc(fmtUsd(m.target_usd, m.spot_usd)) + '. No σ right now — the usual 1-minute wiggle isn\'t available for this window, so the move can\'t be sized yet.</p>';
+  } else {
+    const x = dist / sig;
+    const where = Math.abs(x) < 1 ? "inside the ±1σ cone" : (Math.abs(x) < 2 ? "outside the ±1σ cone" : "well outside the usual wiggle");
+    const dir = dist >= 0 ? "above" : "below";
+    body = '<p class="sig-note">Spot sits ' + esc(fmtUsd(Math.abs(dist), m.spot_usd)) + ' ' + dir + ' target — ' + Math.abs(x).toFixed(1) + '× the usual 1-minute wiggle — ' + where + '.</p>';
+  }
+  return '<div class="panel"><div class="panel-head"><h2 class="panel-title">Momentum zone</h2></div>' + body
+    + '<p class="sig-note">Movement only — where price sits right now, not a call.</p></div>';
+}
+
+function lineChartSVG(candles, open, close, target, sigma, w, h) {
+  if (!candles || !candles.length) return "";
+  const closes = candles.map(c => c.c);
+  let lo = Math.min.apply(null, closes), hi = Math.max.apply(null, closes);
+  if (target !== null && target !== undefined) {
+    lo = Math.min(lo, target - (sigma || 0));
+    hi = Math.max(hi, target + (sigma || 0));
+  }
+  const pad = (hi - lo) * 0.08 || 1;
+  lo -= pad; hi += pad;
+  const X = (t) => 34 + ((t - open) / (close - open)) * (w - 44);
+  const Y = (v) => 8 + (1 - (v - lo) / (hi - lo)) * (h - 26);
+  const fmtT = (t) => {
+    const d = new Date(t);
+    return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  };
+  let svg = '<svg width="100%" viewBox="0 0 ' + w + ' ' + h + '" style="display:block">';
+  if (target !== null && target !== undefined && sigma) {
+    const yT = Y(target), yU = Y(target + sigma), yL = Y(target - sigma);
+    svg += '<polygon points="' + X(open) + ',' + yU + ' ' + X(close) + ',' + yU + ' ' + X(close) + ',' + yL + ' ' + X(open) + ',' + yL + '" fill="rgba(45,212,191,0.08)"/>';
+    svg += '<line x1="' + X(open) + '" y1="' + yT + '" x2="' + X(close) + '" y2="' + yT + '" stroke="#ffb020" stroke-width="1.5" stroke-dasharray="6 5"/>';
+    svg += '<text x="' + (X(close) - 4) + '" y="' + (yT - 5) + '" fill="#ffb020" font-size="10" font-family="JetBrains Mono, monospace" text-anchor="end">target ' + fmtUsd(target, target) + '</text>';
+  }
+  // Segments: break the line where minutes are missing (a gap stays a gap).
+  let seg = [];
+  const flush = () => {
+    if (seg.length > 1) {
+      svg += '<polyline points="' + seg.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(" ") + '" fill="none" style="stroke:var(--ink)" stroke-width="2"/>';
+    }
+    seg = [];
+  };
+  let prevT = null;
+  candles.forEach((c) => {
+    const t = c.t * 1000;
+    if (prevT !== null && t - prevT > 90000) flush();
+    seg.push([X(t), Y(c.c)]);
+    prevT = t;
+  });
+  flush();
+  const last = candles[candles.length - 1];
+  svg += '<circle cx="' + X(last.t * 1000) + '" cy="' + Y(last.c) + '" r="4" fill="#2ee59d"/>';
+  svg += '<text x="34" y="' + (h - 4) + '" fill="var(--ink-faint)" font-size="10" font-family="JetBrains Mono, monospace">window open ' + fmtT(open) + '</text>';
+  svg += '<text x="' + (w - 10) + '" y="' + (h - 4) + '" fill="var(--ink-faint)" font-size="10" font-family="JetBrains Mono, monospace" text-anchor="end">+15m</text>';
+  return svg + "</svg>";
+}
+async function chartPanelHTML(def, m) {
+  const candles = await ensureCandles(def.series);
+  const b = windowBounds(def, m);
+  const inWin = candlesInWindow(candles, b.open, b.close);
+  const svg = lineChartSVG(inWin, b.open, b.close, m.target_usd, m.sigma_1m_usd, 600, 190);
+  const note = m.target_provisional
+    ? "The dashed line is this window's target — the market's strike — this one is provisional."
+    : "The dashed line is this window's target — the market's strike.";
+  return '<div class="panel"><div class="panel-head"><h2 class="panel-title">Live window chart</h2><span class="fresh">1m closes · ±1σ cone</span></div>'
+    + (svg ? '<div class="chart-box">' + svg + '</div><p class="lm-note">' + esc(note) + '</p>'
+      : '<p class="sig-note">No completed 1-minute candles inside this window yet — the path draws itself as each minute closes. Nothing is filled in meanwhile.</p>')
+    + '</div>';
+}
+async function lineMovedHTML(def, m) {
+  const candles = await ensureCandles(def.series);
+  const b = windowBounds(def, m);
+  const inWin = candlesInWindow(candles, b.open, b.close);
+  const target = m.target_usd;
+  let stats = "";
+  if (inWin.length) {
+    const closes = inWin.map(c => c.c);
+    const first = closes[0];
+    const hi = Math.max.apply(null, closes), lo = Math.min.apply(null, closes);
+    let crossed = 0;
+    for (let i = 1; i < closes.length; i++) {
+      if ((closes[i - 1] - target) * (closes[i] - target) < 0) crossed++;
+    }
+    const vs = m.spot_vs_target_usd;
+    const vsPct = m.spot_vs_target_pct;
+    const vsCls = (vs === null || vs === undefined) ? "" : (vs >= 0 ? "up" : "down");
+    const vsTxt = (vs === null || vs === undefined) ? "—"
+      : (vs >= 0 ? "+" : "") + fmtUsd(vs, m.spot_usd) + " (" + (vsPct >= 0 ? "+" : "") + Number(vsPct).toFixed(3) + "%)";
+    stats = '<div class="lm-stats">'
+      + '<div class="lm-stat"><div class="k">Target</div><div class="v">' + esc(fmtUsd(target, m.spot_usd)) + '</div></div>'
+      + '<div class="lm-stat"><div class="k">Spot vs target</div><div class="v ' + vsCls + '">' + esc(vsTxt) + '</div></div>'
+      + '<div class="lm-stat"><div class="k">At window open</div><div class="v">' + esc(fmtUsd(first, m.spot_usd)) + '</div></div>'
+      + '<div class="lm-stat"><div class="k">Window high · closes</div><div class="v">' + esc(fmtUsd(hi, m.spot_usd)) + '</div></div>'
+      + '<div class="lm-stat"><div class="k">Window low · closes</div><div class="v">' + esc(fmtUsd(lo, m.spot_usd)) + '</div></div>'
+      + '<div class="lm-stat"><div class="k">Crossed the target</div><div class="v">' + crossed + (crossed === 1 ? " time" : " times") + '</div></div>'
+      + '</div>';
+  }
+  const svg = lineChartSVG(inWin, b.open, b.close, target, m.sigma_1m_usd, 600, 190);
+  let settled = "";
+  if (windowsCache) {
+    const s = windowsCache.filter(x => x.ticker && x.ticker.indexOf(def.series) === 0 && x.resolution !== null && x.resolution !== undefined);
+    if (s.length) {
+      const w0 = s[0];
+      const sc = candlesInWindow(candles, new Date(w0.opened).getTime(), new Date(w0.closed).getTime());
+      const ssvg = lineChartSVG(sc, new Date(w0.opened).getTime(), new Date(w0.closed).getTime(), w0.target_usd, null, 600, 130);
+      settled = '<div class="settled-sub"><div class="panel-head"><h2 class="panel-title">Just settled</h2><span class="lm-res ' + (w0.resolution === "YES" ? "yes" : "no") + '">' + esc(w0.resolution) + '</span></div>'
+        + '<p class="sig-note">' + esc(w0.ticker) + ' · target ' + esc(fmtUsd(w0.target_usd, w0.target_usd)) + '</p>'
+        + (ssvg ? '<div class="chart-box">' + ssvg + '</div>' : '')
+        + '<p class="lm-note">The resolution was judged from the final-minute spot average vs target.</p></div>';
+    }
+  }
+  const body = inWin.length
+    ? stats + '<div class="chart-box">' + svg + '</div>'
+      + '<p class="lm-note">' + esc(m.target_provisional ? "The dashed line is this window's target — the market's strike — this one is provisional." : "The dashed line is this window's target — the market's strike.") + '</p>'
+    : '<p class="sig-note">No completed 1-minute candles inside this window yet — the path draws itself as each minute closes. Nothing is filled in meanwhile.</p>';
+  return '<div class="panel"><div class="panel-head"><h2 class="panel-title">How the line moved</h2><span class="fresh">line of 1m closes</span></div>'
+    + body + settled
+    + '<p class="lm-note">Source: Coinbase spot, drawn as a line of 1-minute closes — not candlesticks. This panel shows movement only — it is not a prediction.</p></div>';
+}
+async function tapeHTML(def) {
+  const candles = await ensureCandles(def.series);
+  if (!candles || candles.length < 2) return "";
+  const m = marketOf(def);
+  const target = m ? m.target_usd : null;
+  const w = 600, h = 190;
+  const all = [];
+  candles.forEach(c => { all.push(c.h, c.l); });
+  if (target) all.push(target);
+  let lo = Math.min.apply(null, all), hi = Math.max.apply(null, all);
+  const pad = (hi - lo) * 0.08 || 1;
+  lo -= pad; hi += pad;
+  const Y = (v) => 8 + (1 - (v - lo) / (hi - lo)) * (h - 26);
+  const bw = (w - 20) / candles.length;
+  let svg = '<svg width="100%" viewBox="0 0 ' + w + ' ' + h + '" style="display:block">';
+  if (target) {
+    svg += '<line x1="10" y1="' + Y(target) + '" x2="' + (w - 10) + '" y2="' + Y(target) + '" stroke="#ffb020" stroke-width="1.5" stroke-dasharray="6 5"/>';
+  }
+  candles.forEach((c, i) => {
+    const x = 10 + i * bw + bw / 2;
+    const up = c.c >= c.o;
+    const col = up ? "#2dd4bf" : "#f59e0b";
+    svg += '<line x1="' + x.toFixed(1) + '" y1="' + Y(c.h).toFixed(1) + '" x2="' + x.toFixed(1) + '" y2="' + Y(c.l).toFixed(1) + '" stroke="' + col + '" stroke-width="1"/>';
+    svg += '<rect x="' + (x - Math.max(2, bw * 0.32)).toFixed(1) + '" y="' + Y(Math.max(c.o, c.c)).toFixed(1) + '" width="' + Math.max(2, bw * 0.64).toFixed(1) + '" height="' + Math.max(1, Math.abs(Y(c.o) - Y(c.c))).toFixed(1) + '" fill="' + col + '"/>';
+  });
+  const first = candles[0].c, last = candles[candles.length - 1].c;
+  const chg = first ? ((last - first) / first * 100) : 0;
+  svg += '<text x="10" y="' + (h - 4) + '" fill="var(--ink-faint)" font-size="10" font-family="JetBrains Mono, monospace">60 min ago</text>';
+  svg += '<text x="' + (w - 10) + '" y="' + (h - 4) + '" fill="var(--ink-faint)" font-size="10" font-family="JetBrains Mono, monospace" text-anchor="end">now</text>';
+  return '<div class="panel"><div class="panel-head"><h2 class="panel-title">1-hour tape · 1m candles</h2><span class="fresh">' + fmtPct(chg) + ' · 1h</span></div>'
+    + '<div class="chart-box">' + svg + '</div></div>';
+}
+function bookHTML(m) {
+  const book = m.kalshi_book || {};
+  const yes = (book.yes_ladder || []).slice(0, 6);
+  const no = (book.no_ladder || []).slice(0, 6);
+  if (!yes.length && !no.length) return "";
+  const maxSz = Math.max.apply(null, [0].concat(yes.map(x => x.size), no.map(x => x.size))) || 1;
+  const rows = (ladder, cls, label) => ladder.map(r =>
+    '<div class="book-row"><span>' + esc(r.price_cents) + '¢</span>'
+    + '<div class="sizebar ' + cls + '"><div style="width:' + Math.round((r.size / maxSz) * 100) + '%"></div></div>'
+    + '<span class="sz">' + esc(Number(r.size).toLocaleString(undefined, { maximumFractionDigits: 0 })) + '</span></div>'
+  ).join("");
+  return '<div class="panel"><div class="panel-head"><h2 class="panel-title">Kalshi order book</h2><span class="fresh">YES/NO ladder · top 6</span></div>'
+    + '<p class="sig-note" style="margin-top:0;">YES side</p>' + rows(yes, "yes")
+    + '<p class="sig-note">NO side</p>' + rows(no, "no") + '</div>';
+}
+function levelsHTML(m) {
+  const lv = m.levels;
+  if (!lv) return "";
+  const res = lv.nearest_resistance_usd, sup = lv.nearest_support_usd;
+  const row = (list) => (list || []).slice(0, 6).map(l =>
+    '<tr><td class="num">' + esc(fmtUsd(l.price_usd, l.price_usd)) + '</td><td><span class="kind-chip">' + esc(l.kind === "round" ? "Round · psychological level" : "Swing · tested level") + '</span></td><td class="num">' + esc(l.touches) + '</td></tr>'
+  ).join("");
+  return '<div class="panel"><div class="panel-head"><h2 class="panel-title">Key levels</h2></div>'
+    + '<div class="sig-minis" style="grid-template-columns:1fr 1fr;">'
+    + '<div class="mini"><div class="k">Nearest resistance</div><div class="v" style="color:var(--amber)">' + esc(res !== null && res !== undefined ? fmtUsd(res, res) : "—") + '</div></div>'
+    + '<div class="mini"><div class="k">Nearest support</div><div class="v" style="color:var(--up)">' + esc(sup !== null && sup !== undefined ? fmtUsd(sup, sup) : "—") + '</div></div>'
+    + '</div>'
+    + '<table class="kv" style="margin-top:10px;"><thead><tr><th>Price</th><th>Kind</th><th>Touches</th></tr></thead><tbody>'
+    + row(lv.resistance) + row(lv.support) + '</tbody></table></div>';
+}
+function imbalanceHTML(m) {
+  const book = m.kalshi_book || {};
+  const yes = (book.yes_ladder || []).reduce((a, r) => a + (r.size || 0), 0);
+  const no = (book.no_ladder || []).reduce((a, r) => a + (r.size || 0), 0);
+  const tot = yes + no;
+  if (!tot) return "";
+  const yesPct = (yes / tot) * 100;
+  const verdict = yesPct >= 55 ? "YES side is heavier" : (yesPct <= 45 ? "NO side is heavier" : "Book is balanced");
+  return '<div class="panel"><div class="panel-head"><h2 class="panel-title">Book imbalance — Kalshi YES vs NO</h2><span class="fresh">display only</span></div>'
+    + '<div class="splitbar"><div class="yes" style="width:' + yesPct.toFixed(1) + '%"></div><div class="no" style="width:' + (100 - yesPct).toFixed(1) + '%"></div></div>'
+    + '<div class="verdict">' + esc(verdict) + '</div>'
+    + '<p class="sig-note">YES ' + yesPct.toFixed(1) + '% · NO ' + (100 - yesPct).toFixed(1) + '% of contracts on the top of the book. Computed in the browser from the live book — it does not feed the signal, and it is parked for Stage 2 backtesting.</p></div>';
+}
+
+function trackRecordHTML(series, isSignal) {
+  const r = recordsCache[series];
+  if (!isSignal) {
+    return '<div class="panel"><div class="panel-head"><h2 class="panel-title">Track record</h2></div>'
+      + '<p class="sig-note">There is no signal record here — a signal for this market needs its own strategy and its own validation run, and validation never transfers from BTC, ETH or gold.</p></div>';
+  }
+  if (!r) return '<div class="panel"><div class="panel-head"><h2 class="panel-title">Track record</h2></div><p class="sig-note">Loading…</p></div>';
+  const settled = r.windows_settled || 0;
+  const winRate = settled >= 3 && r.win_rate_pct !== null && r.win_rate_pct !== undefined ? r.win_rate_pct + "%" : "—";
+  const holdNote = settled < 3
+    ? (settled === 0 ? "No windows have settled yet, so there is no record to show. The count starts with the first settled window."
+      : "Only " + settled + " window" + (settled === 1 ? " has" : "s have") + " settled — far too few to call this a record. The win rate is held back until there is a real sample behind it.")
+    : "";
+  return '<div class="panel"><div class="panel-head"><h2 class="panel-title">Track record — ' + esc(series.replace("KX", "").replace("15M", "")) + '</h2><span class="fresh">UNVALIDATED</span></div>'
+    + '<div class="tr-cells">'
+    + '<div class="tr-cell"><div class="v">' + settled + '</div><div class="k">Windows settled</div></div>'
+    + '<div class="tr-cell"><div class="v">' + (r.signals_correct || 0) + '</div><div class="k">Signals correct</div></div>'
+    + '<div class="tr-cell"><div class="v">' + winRate + '</div><div class="k">Win rate</div></div>'
+    + '</div>'
+    + (holdNote ? '<p class="sig-note" style="margin-top:10px;">' + esc(holdNote) + '</p>' : '')
+    + '<p class="sig-note" style="margin-top:10px;">UNVALIDATED — needs 100+ paper trades + out-of-sample validation</p>'
+    + '<p class="sig-note">Counted from settled windows only — a window joins the record when it closes and its outcome is known, never before. Each market keeps its own record; validation never transfers across.</p>'
+    + '<p class="sig-note">' + esc(r.resolution_note || "Resolution judged from the final-minute spot average vs target — an approximation of the real CF Benchmarks BRTI settlement rule.") + '</p>'
+    + '<p class="sig-note">This count covers windows since the feed last restarted only — the free service restarts wipe the in-memory record, so a 0/0 here is a fresh count starting over, never a full history.</p>'
+    + '</div>';
+}
+function entryLogHTML(series) {
+  const list = (entriesCache || []).filter(e => e.series === series);
+  if (!list.length) return "";
+  const won = list.filter(e => e.outcome === "win").length;
+  const lost = list.filter(e => e.outcome === "loss").length;
+  const settling = list.filter(e => e.outcome === "pending").length;
+  const settledN = won + lost;
+  const pct = settledN ? ((won / settledN) * 100).toFixed(1) + "%" : "—";
+  const rows = list.slice(0, 8).map(e => {
+    const cls = e.outcome === "win" ? "win" : e.outcome === "loss" ? "loss" : "";
+    const chip = e.outcome === "win" ? '<span class="outcome win">✓ Won</span>'
+      : e.outcome === "loss" ? '<span class="outcome loss">✕ Lost</span>'
+      : '<span class="outcome pending">Settling…</span>';
+    const arrow = e.direction === "UP" ? "▲ UP" : "▼ DOWN";
+    const res = e.resolution ? " · settled " + esc(e.resolution) : "";
+    return '<div class="entry ' + cls + '"><strong>' + esc(arrow) + '</strong> · ' + esc(e.confidence_pct) + '% — to enter '
+      + chip + '<br><span class="meta">' + esc(fmtTimeET(e.entered_at)) + ' ' + esc(fmtDateET(e.entered_at))
+      + ' · Alerted at min ' + esc(e.minute) + ' of 15 · Window opened ' + esc(fmtTimeET(e.opened)) + res + '</span></div>';
+  }).join("");
+  return '<div class="panel"><div class="panel-head"><h2 class="panel-title">Entry log — ' + esc(series.replace("KX", "").replace("15M", "")) + '</h2><span class="fresh">per alert · from the feed</span></div>'
+    + '<div class="chips"><span class="chip">' + list.length + ' alerts</span><span class="chip">' + won + ' won</span><span class="chip">' + lost + ' lost</span><span class="chip">' + settling + ' settling</span><span class="chip">' + pct + ' of settled alerts won</span></div>'
+    + rows
+    + '<p class="sig-note">Per alert, since the feed last restarted — not a daily count.</p></div>';
+}
+function settledChipsHTML(series) {
+  if (!windowsCache) return "";
+  const s = windowsCache.filter(x => x.ticker && x.ticker.indexOf(series) === 0 && x.resolution !== null && x.resolution !== undefined).slice(0, 8);
+  if (!s.length) return "";
+  return '<div class="panel"><div class="panel-head"><h2 class="panel-title">Last settled windows</h2></div>'
+    + '<div class="chips">' + s.map(w =>
+      '<span class="chip">' + esc(fmtTimeET(w.closed)) + ' ' + (w.resolution === "YES" ? "▲" : "▼") + ' ' + esc(w.resolution) + '</span>'
+    ).join("") + '</div></div>';
+}
+function reasoningHTML(series) {
+  const list = (signalsCache || []).filter(s => s.window && s.window.indexOf(series) === 0).slice(0, 8);
+  if (!list.length) return "";
+  return '<div class="panel"><div class="panel-head"><h2 class="panel-title">Live reasoning feed</h2><span class="fresh">signal log · from the feed</span></div>'
+    + list.map(s => '<div class="entry"><span class="meta">' + esc(fmtTimeET(s.time)) + ' · min ' + esc(s.minute) + '</span><br>Based on: ' + esc(s.reason) + '. Window ' + esc(s.window) + '.</div>').join("")
+    + '</div>';
+}
+function goldPanelsHTML() {
+  const g = dailyGold();
+  if (!g) return "";
+  const spot = fmtUsd(g.spot_usd, g.spot_usd);
+  return '<div class="panel"><div class="panel-head"><h2 class="panel-title">Gold spot</h2></div>'
+    + '<p class="muted" style="margin:0 0 4px;">Gold · USD per ounce</p>'
+    + '<div class="big-price">' + esc(spot) + '</div>'
+    + '<p class="sig-note">Spot updated ' + esc(g.as_of ? agoText(new Date(g.as_of).getTime()) : "—") + '.</p></div>'
+    + '<div class="panel"><div class="panel-head"><h2 class="panel-title">Gold daily market</h2></div>'
+    + '<p class="sig-note">' + esc(g.signal_note || "The daily market's strike and expiry aren't served in this API yet — this tab shows the live spot and the 15-minute window above.") + '</p></div>';
+}
+function topMarketsHTML() {
+  const tm = (liveData && liveData.top_markets) || topMarketsCache;
+  const rows = (tm && tm.by_volume) || (Array.isArray(tm) ? tm : []);
+  if (!rows.length) {
+    return '<div class="panel"><div class="panel-head"><h2 class="panel-title">Top markets · ranked by 24h volume</h2><span class="fresh">Kalshi · public feed</span></div><p class="sig-note">Top Markets unavailable right now.</p></div>';
+  }
+  return '<div class="panel"><div class="panel-head"><h2 class="panel-title">Top markets · ranked by 24h volume</h2><span class="fresh">Kalshi · public feed</span></div>'
+    + rows.slice(0, 10).map((r, i) =>
+      '<div class="toprow"><span class="rank">' + (i + 1) + '</span>'
+      + '<span><span class="t">' + esc(r.title) + '</span><br><span class="tk">' + esc(r.ticker) + '</span></span>'
+      + '<span class="yes">' + esc(r.yes_price_cents) + '¢</span>'
+      + '<span class="vol">24h vol $' + esc(Number(r.volume_24h || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })) + '</span></div>'
+    ).join("")
+    + '<p class="sig-note" style="margin-top:10px;">Ranked across the tracked liquid series only.</p></div>'
+    + '<div class="panel"><div class="panel-head"><h2 class="panel-title">Pulse signal on Top Markets</h2></div>'
+    + '<p class="sig-note">None — this board is display only. It ranks Kalshi markets by 24h volume; it carries no signal.</p></div>';
+}
+async function loadResults() {
+  const body = $("results-body");
+  try {
+    const [btc, eth] = await Promise.all([
+      recordsCache.KXBTC15M || api("/track-record?series=KXBTC15M"),
+      recordsCache.KXETH15M || api("/track-record?series=KXETH15M"),
+    ]);
+    recordsCache.KXBTC15M = btc;
+    recordsCache.KXETH15M = eth;
+    if (!entriesCache) entriesCache = await api("/entries?limit=5").catch(() => []);
+    const cell = (r, label) => {
+      const settled = r.windows_settled || 0;
+      const wr = settled >= 3 && r.win_rate_pct !== null && r.win_rate_pct !== undefined ? r.win_rate_pct + "%" : "—";
+      return '<div><p class="sig-note" style="margin:0 0 6px;"><strong>' + esc(label) + '</strong></p><div class="tr-cells">'
+        + '<div class="tr-cell"><div class="v">' + settled + '</div><div class="k">Windows settled</div></div>'
+        + '<div class="tr-cell"><div class="v">' + (r.signals_correct || 0) + '</div><div class="k">Signals correct</div></div>'
+        + '<div class="tr-cell"><div class="v">' + wr + '</div><div class="k">Win rate</div></div></div></div>';
+    };
+    let html = cell(btc, "BTC") + '<div style="height:12px"></div>' + cell(eth, "ETH")
+      + "<p class='sig-note'>UNVALIDATED — needs 100+ paper trades + out-of-sample validation. "
+      + "<a href='/track-record'>Full track record</a></p>";
+    if (entriesCache && entriesCache.length) {
+      html += "<p>Latest entry alerts:</p>" + entriesCache.slice(0, 5).map(e =>
+        "<div>• " + esc(e.series) + " " + esc(e.direction) + " " + esc(e.confidence_pct) + "% — " + esc(e.outcome) + "</div>"
+      ).join("");
+    }
+    body.innerHTML = html;
+  } catch (err) {
+    body.textContent = "Results could not be loaded: " + err.message;
+  }
+}
+async function renderPane(key) {
+  const host = $("panes");
+  if (!liveData) return;
+  if (key === "top") {
+    host.innerHTML = topMarketsHTML();
+    return;
+  }
+  const def = tabs.find(t => t.key === key) || tabs[0];
+  if (!def) { host.innerHTML = '<div class="panel"><p class="sig-note">No live windows right now.</p></div>'; return; }
+  const m = marketOf(def);
+  if (!m) { host.innerHTML = '<div class="panel"><p class="sig-note">No live window for this market right now.</p></div>'; return; }
+  let html = "";
+  if (def.signal) {
+    html += explainerHTML(true);
+    html += '<div class="dash dash-top">' + signalPanelHTML(def, m) + gaugeHTML(def, m) + telemetryHTML(m) + '</div>';
+    const chart = await chartPanelHTML(def, m);
+    html += '<div class="dash dash-mid">' + chart + momentumHTML(m) + '</div>';
+    html += await lineMovedHTML(def, m);
+    html += await tapeHTML(def);
+    html += '<div class="dash dash-low">' + bookHTML(m) + levelsHTML(m) + '</div>';
+    html += imbalanceHTML(m);
+    html += trackRecordHTML(def.series, true);
+    html += entryLogHTML(def.series);
+    html += settledChipsHTML(def.series);
+    html += reasoningHTML(def.series);
+  } else {
+    html += explainerHTML(false);
+    if (def.key === "gold") html += goldPanelsHTML();
+    html += signalPanelHTML(def, m);
+    const chart = await chartPanelHTML(def, m);
+    html += '<div class="dash dash-mid">' + chart + momentumHTML(m) + '</div>';
+    html += '<div class="dash dash-low">' + bookHTML(m) + levelsHTML(m) + '</div>';
+    html += imbalanceHTML(m);
+    html += trackRecordHTML(def.series, false);
+    html += settledChipsHTML(def.series);
+  }
+  host.innerHTML = html;
+}
+
 setMode("signin");
 refresh();
 </script>
