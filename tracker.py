@@ -155,6 +155,25 @@ LEVELS_REFRESH_SECS = 600
 # once an hour per table deletes the same rows — no query reads samples
 # older than 6 hours — and drops ~108 DELETEs/minute to 8/hour.
 _last_prune = {}
+
+# Grade-the-first-call (added 2026-11-18): the track record grades the
+# FIRST ENTER per window at minute <= 9 — the call you could act on —
+# not the last signal. SIT_OUT_CONFIDENCE_FLOOR is the selectivity
+# shadow threshold (first ENTER confidence below it => would_sit_out):
+# logging only, never shown, never counted, until the fresh-data gate
+# passes and the user-facing alert is approved separately.
+SIT_OUT_CONFIDENCE_FLOOR = 70
+
+# Level bounce tracking (added 2026-11-18): after price touches a key
+# level, watch it for one 15-minute window, then judge HELD (price back
+# on the level's own side: support >= level, resistance <= level) vs
+# BROKE (crossed through). Pending touches older than this with no
+# decision are marked 'stale', never counted in the hold rate.
+LEVEL_BOUNCE_OBSERVE_SECS = 900
+LEVEL_BOUNCE_STALE_SECS = 6 * 3600
+# Bucket width for grouping a level's hold rate (matches each series'
+# cluster radius in its CFG: BTC 25, ETH 10).
+LEVEL_BOUNCE_BUCKETS = {"KXBTC15M": 25.0, "KXETH15M": 10.0}
 KALSHI_MARKETS = (
     "https://api.elections.kalshi.com/trade-api/v2/markets"
     "?series_ticker=KXBTC15M&limit=5&status=open"
@@ -540,14 +559,52 @@ _db_ready = False
 _db_init_last_try = 0.0
 
 
-def _track_record_counts(conn, series):
-    """(settled, correct) for one series, counted from settled windows.
+def _first_enter(conn, ticker):
+    """First ENTER signal of a window at minute <= 9 — the actionable call.
 
-    One row per settled window: its LAST signal (MAX id) vs how the
-    window resolved. The ticker range uses the windows PK index; the
-    MAX(id) subquery uses idx_signals_window_action_id. Used by the
-    /track-record fallback and the boot backfill — the hot path reads
-    the track_record_summary table instead (see settle_window).
+    One row per window: the lowest-id ENTER logged at minute 9 or
+    earlier. Later re-fires and enters after minute 9 are not the call
+    anyone could act on, so they never grade the window. Returns the
+    row (direction, confidence, minute) or None when the window never
+    produced an actionable ENTER.
+    """
+    return conn.execute(
+        "SELECT direction, confidence, minute FROM signals WHERE window = ? "
+        "AND action = 'ENTER' AND minute <= 9 ORDER BY id ASC LIMIT 1",
+        (ticker,),
+    ).fetchone()
+
+
+def _track_record_counts(conn, series):
+    """(settled, correct) for one series, graded on the FIRST call.
+
+    One row per settled window: its FIRST ENTER (minute <= 9) vs how
+    the window resolved. A window with no actionable ENTER is not a
+    trade and is not counted. The ticker range uses the windows PK
+    index; the MIN(id) subquery uses idx_signals_window_action_id.
+    Used by the /track-record fallback and the boot regrade — the hot
+    path reads the track_record_summary table instead (see
+    settle_window).
+    """
+    row = conn.execute(
+        "SELECT COUNT(*), SUM(CASE WHEN (f.direction = 'UP' "
+        "AND w.resolution = 'YES') OR (f.direction = 'DOWN' "
+        "AND w.resolution = 'NO') THEN 1 ELSE 0 END) "
+        "FROM windows w JOIN signals f ON f.id = (SELECT MIN(id) "
+        "FROM signals WHERE window = w.ticker AND action = 'ENTER' "
+        "AND minute <= 9) "
+        "WHERE w.resolution IS NOT NULL AND w.ticker >= ? AND w.ticker < ?",
+        (series, series + "\U0010FFFF"),
+    ).fetchone()
+    return (row[0] or 0, row[1] or 0)
+
+
+def _track_record_counts_last_signal(conn, series):
+    """(settled, correct) graded on the LAST signal — diagnostic only.
+
+    The pre-2026-11-18 grading rule, kept so the boot regrade can
+    store the old rate alongside the first-call rate for comparison.
+    It is never the headline and never what validation judges.
     """
     row = conn.execute(
         "SELECT COUNT(*), SUM(CASE WHEN (s.direction = 'UP' "
@@ -585,6 +642,99 @@ def _migrate_kalshi_extras(conn):
             pass
 
 
+def _migrate_grading(conn):
+    """Add the first-call grading columns to track_record_summary.
+
+    Fresh databases get them from the CREATE TABLE above; a database
+    created before this change keeps working because each ALTER is
+    attempted and duplicate-column errors are ignored. Existing rows
+    keep grading='last' (the default) until _regrade_series recomputes
+    them — that is the marker the regrade looks for. Never raises."""
+    for sql in (
+        "ALTER TABLE track_record_summary ADD COLUMN grading TEXT DEFAULT 'last'",
+        "ALTER TABLE track_record_summary ADD COLUMN last_settled INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE track_record_summary ADD COLUMN last_correct INTEGER NOT NULL DEFAULT 0",
+    ):
+        try:
+            conn.execute(sql)
+        except Exception:
+            pass
+
+
+def _migrate_would_sit_out(conn):
+    """Add the selectivity shadow flag column to windows.
+
+    Same pattern as _migrate_kalshi_extras: fresh databases get it
+    from the CREATE TABLE above; existing ones get it here. NULL means
+    "no first ENTER to judge" (or "not settled yet"). Never raises."""
+    try:
+        conn.execute("ALTER TABLE windows ADD COLUMN would_sit_out INTEGER")
+    except Exception:
+        pass
+
+
+def _regrade_series(conn, series):
+    """Recompute one series' summary under first-call grading, once.
+
+    Runs at boot from _init_db_once. If the series has no summary row,
+    it is seeded (fresh database: 0/0). If the row still carries
+    grading='last' — the pre-2026-11-18 rule — the stored counts are
+    recomputed from the stored signals (first ENTER per window, minute
+    <= 9) and the old last-signal counts are stored alongside as the
+    labeled diagnostic. Raw signal rows are never touched. A row
+    already graded 'first' is left alone, so this runs exactly once
+    per series per database, ever. Also backfills would_sit_out for
+    settled windows missing it (first ENTER confidence < 70).
+    Never raises — a failure is logged and the old row stands."""
+    try:
+        row = conn.execute(
+            "SELECT settled, grading FROM track_record_summary WHERE series = ?",
+            (series,),
+        ).fetchone()
+        if row is None:
+            settled, correct = _track_record_counts(conn, series)
+            last_settled, last_correct = _track_record_counts_last_signal(
+                conn, series
+            )
+            conn.execute(
+                "INSERT INTO track_record_summary (series, settled, correct, "
+                "last_settled, last_correct, grading) VALUES (?, ?, ?, ?, ?, 'first')",
+                (series, settled, correct, last_settled, last_correct),
+            )
+            needs_backfill = True
+        elif (row["grading"] or "last") != "first":
+            settled, correct = _track_record_counts(conn, series)
+            last_settled, last_correct = _track_record_counts_last_signal(
+                conn, series
+            )
+            conn.execute(
+                "UPDATE track_record_summary SET settled = ?, correct = ?, "
+                "last_settled = ?, last_correct = ?, grading = 'first' "
+                "WHERE series = ?",
+                (settled, correct, last_settled, last_correct, series),
+            )
+            needs_backfill = True
+        else:
+            needs_backfill = False
+        if needs_backfill:
+            # Shadow flag backfill (one-time, with the regrade): first
+            # ENTER confidence < 70 => would have sat out. Windows with
+            # no actionable ENTER keep NULL — no call to judge.
+            conn.execute(
+                "UPDATE windows SET would_sit_out = (SELECT CASE WHEN "
+                "f.confidence < ? THEN 1 ELSE 0 END FROM signals f "
+                "WHERE f.id = (SELECT MIN(id) FROM signals WHERE "
+                "window = windows.ticker AND action = 'ENTER' "
+                "AND minute <= 9)) "
+                "WHERE resolution IS NOT NULL AND would_sit_out IS NULL "
+                "AND ticker >= ? AND ticker < ?",
+                (SIT_OUT_CONFIDENCE_FLOOR, series, series + "\U0010FFFF"),
+            )
+        conn.commit()
+    except Exception as exc:  # noqa: BLE001 - logged, old row stands
+        print(f"[db] regrade {series} failed: {exc}", flush=True)
+
+
 def _init_db_once():
     """Create tables + indexes if missing. Returns True on success."""
     try:
@@ -606,7 +756,8 @@ def _init_db_once():
                 resolution TEXT, resolved_at REAL,
                 strike_usd REAL, volume_24h REAL, open_interest REAL,
                 last_price_cents REAL, market_result TEXT,
-                expiration_value REAL
+                expiration_value REAL,
+                would_sit_out INTEGER
             );
             CREATE TABLE IF NOT EXISTS kalshi_window_extras (
                 ticker TEXT PRIMARY KEY, settled_at REAL,
@@ -632,8 +783,20 @@ def _init_db_once():
             CREATE TABLE IF NOT EXISTS track_record_summary (
                 series TEXT PRIMARY KEY,
                 settled INTEGER NOT NULL DEFAULT 0,
-                correct INTEGER NOT NULL DEFAULT 0
+                correct INTEGER NOT NULL DEFAULT 0,
+                grading TEXT DEFAULT 'last',
+                last_settled INTEGER NOT NULL DEFAULT 0,
+                last_correct INTEGER NOT NULL DEFAULT 0
             );
+            CREATE TABLE IF NOT EXISTS level_bounces (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                series TEXT, level_usd REAL, kind TEXT,
+                touched_at REAL, touch_price REAL,
+                decided_at REAL, decide_price REAL,
+                outcome TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_level_bounces_series
+                ON level_bounces(series, decided_at);
             CREATE INDEX IF NOT EXISTS idx_signals_window_action_id
                 ON signals(window, action, id);
             CREATE INDEX IF NOT EXISTS idx_windows_close_ts
@@ -644,29 +807,27 @@ def _init_db_once():
         # a database created before they existed. Fresh databases
         # already have them from the CREATE TABLE above.
         _migrate_kalshi_extras(conn)
+        # Grade-the-first-call (2026-11-18): grading + diagnostic
+        # columns on the summary, shadow flag on windows. Same
+        # migrate-then-regrade pattern as the Kalshi extras above.
+        _migrate_grading(conn)
+        _migrate_would_sit_out(conn)
         # Accounts + VIP gate tables (added 2026-11-17): auth owns the
         # schema (AUTH_SCHEMA_SQL in auth.py) so the tables are created
         # identically on both backends. Nothing about the existing
         # tables changes shape.
         auth.init_auth_tables(conn)
-        # Backfill the summary once per series (added 2026-11-17): the
-        # summary is the ONLY thing /track-record reads on the hot path,
-        # so a series with history but no summary row (e.g. a database
-        # created before this table existed) gets its counts computed
-        # once here, at boot, before the poll thread can settle anything.
-        # On a fresh database this inserts (0, 0) and costs nothing.
+        # Summary seed + one-time regrade (added 2026-11-17, regraded
+        # 2026-11-18): the summary is the ONLY thing /track-record
+        # reads on the hot path, so a series with history but no
+        # summary row gets its counts computed once here, at boot,
+        # before the poll thread can settle anything — and a series
+        # still graded under the old last-signal rule is recomputed
+        # from the stored signals to first-call grading (see
+        # _regrade_series). On a fresh database this inserts (0, 0)
+        # and costs nothing.
         for series in ("KXBTC15M", "KXETH15M"):
-            row = conn.execute(
-                "SELECT settled FROM track_record_summary WHERE series = ?",
-                (series,),
-            ).fetchone()
-            if row is None:
-                settled, correct = _track_record_counts(conn, series)
-                conn.execute(
-                    "INSERT INTO track_record_summary (series, settled, "
-                    "correct) VALUES (?, ?, ?)",
-                    (series, settled, correct),
-                )
+            _regrade_series(conn, series)
         conn.commit()
         conn.close()
         return True
@@ -1657,6 +1818,156 @@ def compute_levels(now, spot, table, prominence=5, cluster=25, round_step=500):
     }
 
 
+def _level_bounce_bucket(series, level_usd):
+    """Bucket a level price for hold-rate grouping.
+
+    A level's recomputed price drifts a few dollars as new swings
+    arrive, so grouping by exact price would fragment one level into
+    many one-touch rows. Bucket width is the series' cluster radius
+    (BTC $25, ETH $10) — the same radius that merges swings into a
+    level in compute_levels."""
+    bucket = LEVEL_BOUNCE_BUCKETS.get(series, 25.0)
+    return round(math.floor(level_usd / bucket) * bucket, 2)
+
+
+def _record_level_bounces(series, spot, levels, cluster, now, conn=None):
+    """Detect touches of the current key levels and decide past ones.
+
+    Display-only: never touches the signal, the entry log, or the
+    track record. Runs at the 10-minute levels cadence (the levels
+    themselves are only current at that cadence, so finer sampling
+    would be false precision).
+    - Touch: |spot - level| <= cluster (the level's own merge radius).
+      One pending row per level at a time, and no re-log within the
+      observe window of a decided touch: price hovering on a level is
+      one touch, not many.
+    - Decision: 15 minutes after the touch, the level HELD if price
+      is back on its own side (support: spot >= level; resistance:
+      spot <= level), else it BROKE. Pending touches older than 6h
+      with no decision are marked 'stale' (never counted in the hold
+      rate). Writes: one INSERT per touch + one UPDATE per decision —
+      touches are rare (a few per day per series at most).
+    """
+    own_conn = conn is None
+    if own_conn:
+        conn = db()
+    try:
+        if spot is None or not levels:
+            return
+        # --- decide pending touches whose observe window has passed
+        pending = conn.execute(
+            "SELECT id, level_usd, kind, touched_at FROM level_bounces "
+            "WHERE series = ? AND outcome IS NULL ORDER BY touched_at",
+            (series,),
+        ).fetchall()
+        for p in pending:
+            age = now - p["touched_at"]
+            if age >= LEVEL_BOUNCE_STALE_SECS:
+                conn.execute(
+                    "UPDATE level_bounces SET outcome = 'stale', "
+                    "decided_at = ?, decide_price = ? WHERE id = ?",
+                    (now, spot, p["id"]),
+                )
+            elif age >= LEVEL_BOUNCE_OBSERVE_SECS:
+                held = (
+                    (spot >= p["level_usd"]) if p["kind"] == "support"
+                    else (spot <= p["level_usd"])
+                )
+                conn.execute(
+                    "UPDATE level_bounces SET outcome = ?, decided_at = ?, "
+                    "decide_price = ? WHERE id = ?",
+                    ("held" if held else "broke", now, spot, p["id"]),
+                )
+        # --- detect new touches against the current levels
+        for kind in ("resistance", "support"):
+            for lv in (levels.get(kind) or []):
+                price = lv["price_usd"]
+                if price is None or abs(spot - price) > cluster:
+                    continue
+                recent = conn.execute(
+                    "SELECT id FROM level_bounces WHERE series = ? "
+                    "AND kind = ? AND outcome IS NULL "
+                    "AND ABS(level_usd - ?) <= ? "
+                    "UNION ALL SELECT id FROM level_bounces WHERE series = ? "
+                    "AND kind = ? AND outcome IN ('held', 'broke') "
+                    "AND decided_at >= ? AND ABS(level_usd - ?) <= ? LIMIT 1",
+                    (series, kind, price, cluster,
+                     series, kind, now - LEVEL_BOUNCE_OBSERVE_SECS,
+                     price, cluster),
+                ).fetchone()
+                if recent is not None:
+                    continue
+                conn.execute(
+                    "INSERT INTO level_bounces (series, level_usd, kind, "
+                    "touched_at, touch_price) VALUES (?, ?, ?, ?, ?)",
+                    (series, price, kind, now, spot),
+                )
+        conn.commit()
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def _level_bounce_summary(conn, series, limit=20):
+    """Per-level hold rates + recent decided outcomes for /level-bounces.
+
+    Levels are grouped by price bucket (the series' cluster radius)
+    so a drifting level still counts as one level. Returns (levels,
+    recent): levels sorted by touches desc, recent newest first.
+    'stale' outcomes are never counted in the hold rate.
+    """
+    like = (series + "%",) if series else ("%",)
+    rows = conn.execute(
+        "SELECT series, level_usd, kind, outcome FROM level_bounces "
+        "WHERE outcome IN ('held', 'broke') AND series LIKE ?",
+        (like[0],),
+    ).fetchall()
+    groups = {}
+    for r in rows:
+        bucket = _level_bounce_bucket(r["series"], r["level_usd"])
+        key = (r["series"], r["kind"], bucket)
+        g = groups.setdefault(
+            key, {"series": r["series"], "kind": r["kind"],
+                  "level_usd": bucket, "touches": 0, "held": 0, "broke": 0}
+        )
+        g["touches"] += 1
+        if r["outcome"] == "held":
+            g["held"] += 1
+        else:
+            g["broke"] += 1
+    levels = []
+    for g in sorted(groups.values(), key=lambda x: -x["touches"]):
+        g["hold_rate_pct"] = (
+            round(100 * g["held"] / g["touches"], 1) if g["touches"] else None
+        )
+        levels.append(g)
+    recent_rows = conn.execute(
+        "SELECT series, level_usd, kind, touched_at, touch_price, "
+        "decided_at, decide_price, outcome FROM level_bounces "
+        "WHERE outcome IN ('held', 'broke') AND series LIKE ? "
+        "ORDER BY decided_at DESC LIMIT ?",
+        (like[0], limit),
+    ).fetchall()
+    recent = [
+        {
+            "series": r["series"],
+            "level_usd": r["level_usd"],
+            "kind": r["kind"],
+            "touched_at": datetime.fromtimestamp(
+                r["touched_at"], tz=timezone.utc
+            ).isoformat(),
+            "touch_price": r["touch_price"],
+            "decided_at": datetime.fromtimestamp(
+                r["decided_at"], tz=timezone.utc
+            ).isoformat() if r["decided_at"] else None,
+            "decide_price": r["decide_price"],
+            "outcome": r["outcome"],
+        }
+        for r in recent_rows
+    ]
+    return levels, recent
+
+
 def sigma_1m(now, table="spot_samples"):
     """Std dev of spot over the last 60 seconds, in dollars."""
     try:
@@ -1705,31 +2016,65 @@ def settle_window(ticker, table="spot_samples"):
         conn.close()
         return
     resolution = "YES" if avg >= target else "NO"
+    # First-call grading (2026-11-18): the actionable call is the
+    # first ENTER at minute <= 9. Its confidence also decides the
+    # selectivity shadow flag (first ENTER < 70 => would have sat
+    # out). The flag rides this same resolution UPDATE — zero extra
+    # writes — and is logging only: no endpoint ever shows it.
+    first = _first_enter(conn, ticker)
+    would_sit_out = None
+    if first is not None:
+        would_sit_out = (
+            1 if first["confidence"] < SIT_OUT_CONFIDENCE_FLOOR else 0
+        )
     conn.execute(
-        "UPDATE windows SET resolution = ?, resolved_at = ? WHERE ticker = ?",
-        (resolution, time.time(), ticker),
+        "UPDATE windows SET resolution = ?, resolved_at = ?, "
+        "would_sit_out = ? WHERE ticker = ?",
+        (resolution, time.time(), would_sit_out, ticker),
     )
     # Keep the track-record summary in step, in the SAME commit as the
     # resolution write (added 2026-11-17): /track-record reads the
     # summary, not the windows table, so a settle that resolved the
-    # window but missed the summary would undercount forever. A window
-    # with no signals is not counted at all — same as the old JOIN,
-    # which found no signal row for it.
+    # window but missed the summary would undercount forever. The
+    # graded count is the FIRST call (2026-11-18): a window with no
+    # actionable ENTER is not a trade and is not counted at all. The
+    # last-signal verdict is kept alongside as a labeled diagnostic
+    # only — it never becomes the headline.
     last = conn.execute(
         "SELECT direction FROM signals WHERE window = ? "
         "ORDER BY id DESC LIMIT 1",
         (ticker,),
     ).fetchone()
-    if last is not None:
-        correct = 1 if (
-            (last["direction"] == "UP" and resolution == "YES")
-            or (last["direction"] == "DOWN" and resolution == "NO")
-        ) else 0
+    if first is not None or last is not None:
+        series = ticker.split("-")[0]
+        first_correct = 0
+        if first is not None:
+            first_correct = 1 if (
+                (first["direction"] == "UP" and resolution == "YES")
+                or (first["direction"] == "DOWN" and resolution == "NO")
+            ) else 0
+        last_correct = 0
+        if last is not None:
+            last_correct = 1 if (
+                (last["direction"] == "UP" and resolution == "YES")
+                or (last["direction"] == "DOWN" and resolution == "NO")
+            ) else 0
         conn.execute(
-            "INSERT INTO track_record_summary (series, settled, correct) "
-            "VALUES (?, 1, ?) ON CONFLICT(series) DO UPDATE SET "
-            "settled = settled + 1, correct = correct + excluded.correct",
-            (ticker.split("-")[0], correct),
+            "INSERT INTO track_record_summary (series, settled, correct, "
+            "last_settled, last_correct, grading) "
+            "VALUES (?, ?, ?, ?, ?, 'first') ON CONFLICT(series) DO UPDATE SET "
+            "settled = settled + excluded.settled, "
+            "correct = correct + excluded.correct, "
+            "last_settled = last_settled + excluded.last_settled, "
+            "last_correct = last_correct + excluded.last_correct, "
+            "grading = 'first'",
+            (
+                series,
+                1 if first is not None else 0,
+                first_correct,
+                1 if last is not None else 0,
+                last_correct,
+            ),
         )
     conn.commit()
     conn.close()
@@ -1937,6 +2282,20 @@ def poll_series(cfg, now):
                 cfg["prominence"], cfg["cluster"], cfg["round_step"],
             )
             S[K["levels_ts"]] = now
+            # --- level bounce tracking (display only; signal series
+            # only — every feed-only config sets "signal": False, so
+            # this is BTC + ETH). A touch is sampled at the levels
+            # cadence and decided 15 minutes later. Never touches the
+            # signal or the track record; a failure here must never
+            # kill the poll thread.
+            if cfg.get("signal", True):
+                try:
+                    _record_level_bounces(
+                        cfg["series_ticker"], S[K["spot"]], S[K["levels"]],
+                        cfg["cluster"], now,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    S["errors"].append(f"level bounce {exc}")
 
 
 def poll_forever():
@@ -2634,10 +2993,14 @@ def signals(limit: int = 20, series: str = ""):
 
 @app.get("/track-record")
 def track_record(series: str = "KXBTC15M"):
-    """Win rate counted from settled windows: last signal vs resolution.
+    """Win rate graded on the FIRST call per window (2026-11-18).
 
     Defaults to the BTC 15-minute series; pass ?series=KXETH15M for ETH.
     Each series has its own record — validation never transfers across.
+    The headline win rate grades the first ENTER at minute <= 9 — the
+    call you could act on. The old last-signal-per-window rate is kept
+    as a clearly-labeled diagnostic only; it is not the headline and
+    not what validation judges.
     """
     conn = db()
     # Hot path reads the summary table (added 2026-11-17): one PK lookup,
@@ -2645,23 +3008,40 @@ def track_record(series: str = "KXBTC15M"):
     # table costs ~11 rows per settled window per call (~32k rows/call
     # at 30 days of history, growing ~1k/call/day) — at once-a-minute
     # polling that alone would break Turso's free 500M rows-read cap.
-    # settle_window keeps the summary in step; the boot backfill seeds
+    # settle_window keeps the summary in step; the boot regrade seeds
     # it for a series with history but no row yet. If the row is missing
     # for any other reason, count live once and store the result.
     row = conn.execute(
-        "SELECT settled, correct FROM track_record_summary WHERE series = ?",
+        "SELECT settled, correct, last_settled, last_correct, grading "
+        "FROM track_record_summary WHERE series = ?",
         (series,),
     ).fetchone()
     if row is None:
         settled, correct = _track_record_counts(conn, series)
+        last_settled, last_correct = _track_record_counts_last_signal(
+            conn, series
+        )
         conn.execute(
             "INSERT OR IGNORE INTO track_record_summary (series, settled, "
-            "correct) VALUES (?, ?, ?)",
-            (series, settled, correct),
+            "correct, last_settled, last_correct, grading) "
+            "VALUES (?, ?, ?, ?, ?, 'first')",
+            (series, settled, correct, last_settled, last_correct),
         )
         conn.commit()
+        grading = "first"
     else:
+        if (row["grading"] or "last") != "first":
+            # Boot regrade was missed (e.g. it failed once): heal it
+            # now, then re-read. Runs at most once per series, ever.
+            _regrade_series(conn, series)
+            row = conn.execute(
+                "SELECT settled, correct, last_settled, last_correct, grading "
+                "FROM track_record_summary WHERE series = ?",
+                (series,),
+            ).fetchone()
         settled, correct = row["settled"], row["correct"]
+        last_settled, last_correct = row["last_settled"], row["last_correct"]
+        grading = row["grading"] or "last"
     conn.close()
     return {
         "series": series,
@@ -2670,6 +3050,23 @@ def track_record(series: str = "KXBTC15M"):
         "windows_settled": settled,
         "signals_correct": correct,
         "win_rate_pct": round(100 * correct / settled, 1) if settled else None,
+        "grading": "first-call" if grading == "first" else "last-signal",
+        "grading_note": (
+            "Win rate grades the FIRST ENTER per window (minute <= 9) — "
+            "the call you could act on. Windows with no actionable ENTER "
+            "are not trades and are not counted."
+            if grading == "first"
+            else "Regrade pending: this row still carries the old "
+            "last-signal grading. The first-call regrade runs at boot."
+        ),
+        "last_signal_win_rate_pct": (
+            round(100 * last_correct / last_settled, 1) if last_settled else None
+        ),
+        "last_signal_note": (
+            "Diagnostic only: the old last-signal-per-window rate, kept "
+            "for comparison. It is not the headline and not what "
+            "validation judges."
+        ),
         "resolution_note": "Resolution judged from the final-minute spot average vs target — an approximation of the real CF Benchmarks BRTI settlement rule.",
     }
 
@@ -2737,6 +3134,37 @@ def entries(limit: int = 50, series: str = ""):
             }
         )
     return out
+
+
+@app.get("/level-bounces")
+def level_bounces(series: str = "", limit: int = 20):
+    """What happened after price touched a key level — display only.
+
+    Per-level hold rates (held vs broke, grouped by price bucket) plus
+    the most recent decided touches. A level HELD if price was back on
+    its own side 15 minutes after the touch (support: spot >= level;
+    resistance: spot <= level); otherwise it BROKE. 'stale' touches
+    (no decision within 6h) are never counted. Nothing here feeds the
+    signal or the track record. Defaults to both series; pass
+    ?series=KXBTC15M or KXETH15M for one series.
+    """
+    limit = max(1, min(100, limit))
+    conn = db()
+    try:
+        levels, recent = _level_bounce_summary(conn, series, limit)
+    finally:
+        conn.close()
+    return {
+        "series": series or "all",
+        "note": (
+            "Display only: held = price was back on the level's own "
+            "side 15 minutes after the touch; broke = it crossed "
+            "through. Touches are sampled at the 10-minute levels "
+            "cadence. Never feeds the signal or the track record."
+        ),
+        "levels": levels,
+        "recent": recent,
+    }
 
 
 @app.get("/kalshi-extras")
@@ -2863,7 +3291,7 @@ def root():
         {
             "service": "BTC Oracle Pro — public tracking API",
             "paper_only": True,
-            "endpoints": ["/live", "/live/all", "/candles", "/signals", "/track-record", "/entries", "/windows", "/kalshi-extras", "/top-markets", "/health", "/app", "/me", "/app/live", "/app/callouts", "/auth/signup", "/auth/login", "/auth/logout", "/stripe/webhook"],
+            "endpoints": ["/live", "/live/all", "/candles", "/signals", "/track-record", "/entries", "/windows", "/kalshi-extras", "/level-bounces", "/top-markets", "/health", "/app", "/me", "/app/live", "/app/callouts", "/auth/signup", "/auth/login", "/auth/logout", "/stripe/webhook"],
             "note": "Signals are UNVALIDATED v1 logic. Not financial advice. No live trading.",
         }
     )
