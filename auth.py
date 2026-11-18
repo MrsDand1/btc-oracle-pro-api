@@ -67,6 +67,29 @@ CREATE TABLE IF NOT EXISTS stripe_events (
     received_at REAL NOT NULL,
     handled TEXT NOT NULL
 );
+-- Signup agreement record (added 2026-11-18, Terms + Refund Policy).
+-- Append-only: one row per user per Terms version. A second insert
+-- for the same (user_id, terms_version) is ignored, never an update,
+-- so the original signup record can never be overwritten. A later
+-- re-agreement (new Terms version) is an additional row.
+CREATE TABLE IF NOT EXISTS terms_agreements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    email TEXT NOT NULL,
+    terms_version TEXT NOT NULL,
+    terms_effective_date TEXT NOT NULL,
+    policy_version TEXT NOT NULL,
+    policy_effective_date TEXT NOT NULL,
+    agreed_at TEXT NOT NULL,
+    age_confirmed INTEGER NOT NULL DEFAULT 0,
+    terms_agreed INTEGER NOT NULL DEFAULT 0,
+    method TEXT NOT NULL,
+    ip TEXT,
+    user_agent TEXT,
+    CHECK (age_confirmed IN (0, 1)), CHECK (terms_agreed IN (0, 1)),
+    UNIQUE (user_id, terms_version)
+);
+CREATE INDEX IF NOT EXISTS idx_terms_agreements_user ON terms_agreements(user_id);
 """
 
 USER_COLUMNS = (
@@ -82,6 +105,25 @@ SESSION_DAYS = 30
 SESSION_REFRESH_DAYS = 7  # extend the expiry when under 7 days remain
 MIN_PASSWORD_LEN = 8
 VALIDATION_REQUIRED_SETTLED = 100  # settled windows per series (BTC + ETH)
+
+# ------------------------------------------------------------ Terms + Refund Policy
+# Version identifiers for the agreement record (added 2026-11-18).
+# These are THE version ids: the Terms page and the Refund Policy page
+# print them, and the signup record stores them. The draft's "v1.0"
+# example is superseded by these dated ids. If the Terms ever change
+# materially, mint new ids (new date) — never edit these in place, or
+# old agreement records would point at new text.
+TERMS_VERSION = "terms-2026-11-18-v1"
+TERMS_EFFECTIVE_DATE = "2026-11-18"
+POLICY_VERSION = "refund-2026-11-18-v1"
+POLICY_EFFECTIVE_DATE = "2026-11-18"
+TERMS_AGREEMENT_METHOD = "signup checkboxes"
+
+AGREEMENT_COLUMNS = (
+    "id", "user_id", "email", "terms_version", "terms_effective_date",
+    "policy_version", "policy_effective_date", "agreed_at",
+    "age_confirmed", "terms_agreed", "method", "ip", "user_agent",
+)
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -343,6 +385,72 @@ def set_stripe_customer_id(conn, user_id, stripe_customer_id):
     conn.commit()
 
 
+# ------------------------------------------------------------ signup agreement record
+def record_terms_agreement(conn, user_id, email, age_confirmed,
+                           terms_agreed, ip=None, user_agent=None,
+                           agreed_at=None):
+    """Store the signup agreement. Never overwrites: INSERT OR IGNORE
+    on the UNIQUE (user_id, terms_version) key means a second record
+    for the same user and version is a no-op, and the existing row
+    (with its original agreed_at) is returned. A new Terms version
+    inserts as an additional row. Returns the agreement dict."""
+    now = agreed_at or datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "INSERT OR IGNORE INTO terms_agreements "
+        "(user_id, email, terms_version, terms_effective_date, "
+        "policy_version, policy_effective_date, agreed_at, "
+        "age_confirmed, terms_agreed, method, ip, user_agent) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            user_id, normalize_email(email),
+            TERMS_VERSION, TERMS_EFFECTIVE_DATE,
+            POLICY_VERSION, POLICY_EFFECTIVE_DATE,
+            now, 1 if age_confirmed else 0, 1 if terms_agreed else 0,
+            TERMS_AGREEMENT_METHOD, ip, user_agent,
+        ),
+    )
+    conn.commit()
+    return get_terms_agreement(conn, user_id, TERMS_VERSION)
+
+
+def get_terms_agreement(conn, user_id, terms_version=None):
+    """One agreement row: the named version, or the latest by
+    agreed_at when no version is given. None when no record exists
+    (e.g. accounts created before the Terms step was added)."""
+    if terms_version is not None:
+        row = conn.execute(
+            "SELECT " + ", ".join(AGREEMENT_COLUMNS)
+            + " FROM terms_agreements "
+            + "WHERE user_id = ? AND terms_version = ?",
+            (user_id, terms_version),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT " + ", ".join(AGREEMENT_COLUMNS)
+            + " FROM terms_agreements WHERE user_id = ? "
+            + "ORDER BY agreed_at DESC, id DESC LIMIT 1",
+            (user_id,),
+        ).fetchone()
+    return _as_dict(row, AGREEMENT_COLUMNS)
+
+
+def public_agreement(agreement):
+    """What GET /auth/agreement returns: the record, with the
+    booleans as JSON booleans. None stays None."""
+    if agreement is None:
+        return None
+    return {
+        "terms_version": agreement["terms_version"],
+        "terms_effective_date": agreement["terms_effective_date"],
+        "policy_version": agreement["policy_version"],
+        "policy_effective_date": agreement["policy_effective_date"],
+        "agreed_at": agreement["agreed_at"],
+        "age_confirmed": bool(agreement["age_confirmed"]),
+        "terms_agreed": bool(agreement["terms_agreed"]),
+        "method": agreement["method"],
+    }
+
+
 def touch_login(conn, user_id):
     conn.execute(
         "UPDATE users SET last_login_at = ? WHERE id = ?",
@@ -485,6 +593,7 @@ class SignupBody(BaseModel):
     email: str
     password: str
     age_confirm: bool = False
+    terms_agree: bool = False
 
 
 class LoginBody(BaseModel):
@@ -565,9 +674,17 @@ def signup(body: SignupBody, request: Request, response: Response):
             status_code=400,
             detail=f"Password must be at least {MIN_PASSWORD_LEN} characters",
         )
-    if not body.age_confirm:
+    # Terms + Refund Policy (added 2026-11-18): both boxes are required.
+    # The error text is the docx's verbatim text — the 18+ box and the
+    # Terms box are separate, so either one missing is the same error.
+    if not body.age_confirm or not body.terms_agree:
         raise HTTPException(
-            status_code=400, detail="You must confirm you are 18 or older"
+            status_code=400,
+            detail=(
+                "Please confirm you are 18 or older and agree to the "
+                "Terms of Use and Refund and Cancellation Policy before "
+                "creating your account."
+            ),
         )
     conn = get_db()
     try:
@@ -576,11 +693,39 @@ def signup(body: SignupBody, request: Request, response: Response):
                 status_code=409, detail="An account with that email already exists"
             )
         user = create_user(conn, email, hash_password(body.password))
+        # The agreement record is part of the signup: if it cannot be
+        # written, no partial account is left behind.
+        try:
+            record_terms_agreement(
+                conn, user["id"], email,
+                age_confirmed=True, terms_agreed=True,
+                ip=_client_ip(request),
+                user_agent=request.headers.get("user-agent", ""),
+            )
+        except Exception:
+            conn.execute("DELETE FROM users WHERE id = ?", (user["id"],))
+            conn.commit()
+            raise
         token = create_session(conn, user["id"])
     finally:
         conn.close()
     set_session_cookie(response, token)
     return {"ok": True, "email": user["email"], "vip": False}
+
+
+@router.get("/auth/agreement")
+def get_agreement(request: Request):
+    """The signed-in user's signup agreement record (or null when no
+    record exists — accounts created before the Terms step was added).
+    The Account page shows this: version and date, with links to the
+    current Terms and policy."""
+    user = require_user(request)
+    conn = get_db()
+    try:
+        agreement = get_terms_agreement(conn, user["id"])
+    finally:
+        conn.close()
+    return {"agreement": public_agreement(agreement)}
 
 
 @router.post("/auth/login")
