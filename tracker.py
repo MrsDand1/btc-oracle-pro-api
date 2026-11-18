@@ -100,7 +100,9 @@ Data reality (verified Nov 16, 2026; corrected Nov 18, 2026):
   callouts + the full served markets. Stripe Subscriptions is the
   payment rail (billing.py webhook only — no product, no price, no
   checkout in this build). The web viewer is served at /app from this
-  same service. The news-veto pop-up was dropped, not built.
+  same service. Terms of Use + Refund Policy pages at /terms and
+  /refund-policy (added 2026-11-18); signup records the agreement
+  (auth.py). The news-veto pop-up was dropped, not built.
 
 Run:  uvicorn tracker:app --host 0.0.0.0 --port 8000
 Endpoints: /live, /live/all, /signals, /track-record, /entries, /windows, /top-markets, /health
@@ -117,7 +119,7 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import auth  # accounts + VIP gate (added 2026-11-17); auth never imports tracker
@@ -3291,9 +3293,181 @@ def root():
         {
             "service": "BTC Oracle Pro — public tracking API",
             "paper_only": True,
-            "endpoints": ["/live", "/live/all", "/candles", "/signals", "/track-record", "/entries", "/windows", "/kalshi-extras", "/level-bounces", "/top-markets", "/health", "/app", "/me", "/app/live", "/app/callouts", "/auth/signup", "/auth/login", "/auth/logout", "/stripe/webhook"],
+            "endpoints": ["/live", "/live/all", "/candles", "/signals", "/track-record", "/entries", "/windows", "/kalshi-extras", "/level-bounces", "/top-markets", "/health", "/app", "/me", "/app/live", "/app/callouts", "/auth/signup", "/auth/login", "/auth/logout", "/auth/agreement", "/terms", "/refund-policy", "/stripe/webhook"],
             "note": "Signals are UNVALIDATED v1 logic. Not financial advice. No live trading.",
         }
+    )
+
+
+# ------------------------------------------------------------ Terms + Refund Policy pages
+# (added 2026-11-18): the Terms of Use and the Refund and Cancellation
+# Policy from the draft (~/workspace/goals/btc-oracle-pro/files/
+# btc-oracle-pro-terms-refund-policy/), with Cheli's three decisions
+# filled in — operator Cheli S Williams, governing law Virginia,
+# support btcoraclepro@proton.me. Served at /terms and /refund-policy
+# so the signup checkboxes can link to them without losing the form
+# (the viewer opens them in a new tab). The draft is NOT yet
+# attorney-reviewed: these pages are staging-only until a
+# Virginia-licensed attorney reviews the no-refunds terms, the
+# liability limits, and the refund exceptions. The draft's internal
+# "[Lawyer to confirm...]" notes are not shown on the pages, and the
+# draft's "Part 3 of this draft" reference in section 5 reads "at
+# signup" here. Version ids are auth.TERMS_VERSION /
+# auth.POLICY_VERSION — the agreement record stores the same ids.
+_LEGAL_STYLE = (
+    "body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;"
+    "max-width:720px;margin:0 auto;padding:24px 18px;line-height:1.6;"
+    "color:#1c2b28;background:#f7f5f0}"
+    "h1{font-size:24px;line-height:1.25}h2{font-size:18px;margin-top:28px}"
+    ".meta{color:#5a6b66;font-size:13px}.rule{border:1px solid #b98a1d;"
+    "background:#fff8e1;padding:12px 14px;border-radius:8px}"
+    "a{color:#0b6e4f}ul{padding-left:22px}"
+)
+
+
+def _legal_page(title, version_line, body):
+    return (
+        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+        f"<title>{title} — BTC Oracle Pro</title>\n"
+        f"<style>{_LEGAL_STYLE}</style>\n</head>\n<body>\n<main>\n"
+        "<p><a href=\"/app\">&larr; Back to BTC Oracle Pro</a></p>\n"
+        f"<h1>{title}</h1>\n<p class=\"meta\">{version_line}</p>\n"
+        f"{body}\n"
+        "<hr>\n<p><a href=\"/terms\">Terms of Use</a> &middot; "
+        "<a href=\"/refund-policy\">Refund and Cancellation Policy</a> "
+        "&middot; <a href=\"/app\">Back to the app</a></p>\n"
+        "</main>\n</body>\n</html>\n"
+    )
+
+
+TERMS_BODY = """<p>These Terms of Use ("Terms") are an agreement between you and Cheli S Williams, the operator of BTC Oracle Pro ("BTC Oracle Pro," "we," "us," or "our"). By creating an account, or by using the service, you agree to these Terms and to the Refund and Cancellation Policy, which is part of these Terms. If you do not agree, do not create an account and do not use the service.</p>
+<h2>1. What BTC Oracle Pro is</h2>
+<p>BTC Oracle Pro is an information and tracking tool. It displays live market windows, signals, watchlists, charts, and a public track record for certain markets, including 15-minute Bitcoin and other markets shown in the app. Paid ("VIP") membership adds features such as timely callouts and access to the full set of markets the app serves.</p>
+<p>Signals are generated by software models. They are opinions and information for your own evaluation — they are not instructions to trade, and no signal is a promise that a market will move in any direction.</p>
+<h2>2. Not financial advice — you make your own decisions</h2>
+<ul>
+<li>BTC Oracle Pro is not a financial adviser, broker, exchange, or investment service, and nothing in the app is financial, investment, tax, or legal advice.</li>
+<li>We do not place trades for you. There is no automated trading on your account. Any trade you make is made by you, on your own account, with a third party of your choice, at your own risk.</li>
+<li>We do not know your financial situation, and a signal that appears in the app is not a recommendation that it is suitable for you.</li>
+<li>Past results — including every win rate, streak, and track record figure shown in the app — do not guarantee future results. A track record describes what the model signalled in past windows; it is not a promise about any future window.</li>
+<li>Trading and prediction markets involve a real risk of loss, including losing all of the money you put in. Never trade with money you cannot afford to lose.</li>
+</ul>
+<p><em>We use no "lock," "guaranteed," or "sure thing" language for any signal, and you should treat any service that does with caution — including if you ever see that language attributed to us by someone else.</em></p>
+<h2>3. Who may use the service — 18 and over</h2>
+<p>You must be at least 18 years old to create an account or buy a membership. By creating an account you confirm that you are 18 or older and that you are legally allowed to use this kind of information service where you live. You are responsible for checking that using the service, and any trading you choose to do, is legal in your location. We may close an account we learn belongs to someone under 18, without a refund for any period already paid for.</p>
+<h2>4. Your account</h2>
+<ul>
+<li><strong>Accuracy and security.</strong> Give accurate information when you sign up, and keep your login details private. Activity under your account is treated as yours.</li>
+<li><strong>One person per account.</strong> One account is for one person. Do not share, sell, or transfer your account or your VIP access, and do not share VIP callouts or paid content outside the service for others to use in place of their own membership.</li>
+<li><strong>Problems.</strong> Tell us promptly at <a href="mailto:btcoraclepro@proton.me">btcoraclepro@proton.me</a> if you believe your account has been used without your permission.</li>
+</ul>
+<h2>5. Agreeing to these Terms at signup</h2>
+<p>An account cannot be created until you tick the agreement boxes shown at signup. We record the agreement on your account — the version of the Terms you agreed to, the date and time, and the account details listed at signup — and that record is our evidence of your agreement. Keep your own copy: the current Terms and Refund and Cancellation Policy are available in the app at all times.</p>
+<h2>6. Free and VIP access</h2>
+<p>Some features are free and some require a paid VIP membership, as described in the app. We may add, remove, or change features — free or VIP — and we may change which markets the app covers. A feature being shown in the app is not a promise that it will always be available. VIP membership does not change what a signal is: VIP members receive the same kind of information, delivered with the VIP features described at checkout.</p>
+<h2>7. Subscriptions, billing, and renewal</h2>
+<ul>
+<li><strong>Price.</strong> VIP is sold as a monthly subscription at the price shown at checkout (currently $25 per month, before any promotion). The price you see at checkout is the price for your first period.</li>
+<li><strong>Payment processor.</strong> Payments are processed by Stripe. We do not receive or store your full card number. By subscribing, you also agree to Stripe's terms for processing your payment.</li>
+<li><strong>Automatic renewal.</strong> Your subscription renews automatically each month and your payment method will be charged at the start of each new period, until you cancel. We will not charge a different recurring amount without telling you first and giving you a chance to cancel before the new amount applies.</li>
+<li><strong>Failed payments.</strong> If a payment fails, we may retry it through Stripe and we may pause or remove VIP access until payment succeeds. Free access, if any, is not affected.</li>
+<li><strong>Taxes.</strong> Any taxes that apply to your purchase are handled as shown at checkout.</li>
+</ul>
+<h2>8. Promotions</h2>
+<p>From time to time we may offer a promotional price or a limited-number offer, with its own stated dates and conditions. A promotional price that is described as "locked" keeps that price for your subscription for as long as you stay continuously subscribed under that promotion's conditions; if you cancel and later rejoin, the then-current standard price applies. Promotions may be limited, may require the service to have met conditions we state for the offer, and may be withdrawn before they start. A promotion does not change the Refund and Cancellation Policy.</p>
+<h2>9. Cancellation and refunds</h2>
+<p>You may cancel at any time, and all payments are non-refundable, as set out in full in the <a href="/refund-policy">Refund and Cancellation Policy</a>. That policy is part of these Terms. Read it before you subscribe — by subscribing, you agree to it.</p>
+<h2>10. Acceptable use</h2>
+<p>You agree not to:</p>
+<ul>
+<li>use the service for anything unlawful, or to help anyone else break the law;</li>
+<li>copy, scrape, automatically harvest, resell, or redistribute signals, callouts, data, or track-record content from the service, except for your own personal use;</li>
+<li>present our signals or track record as your own product, or imply that we endorse a trade, a service, or a claim we did not make;</li>
+<li>interfere with the service, try to gain access to accounts or systems that are not yours, or bypass any paywall, limit, or security measure;</li>
+<li>use the service if you are under 18.</li>
+</ul>
+<p>We may warn you, pause access, or close an account that breaks these rules, without a refund for any period already paid for.</p>
+<h2>11. Third parties and market data</h2>
+<p>The app displays data from third parties, including market and price data relating to exchanges and prediction-market platforms such as Kalshi, and payment services from Stripe. We are not affiliated with, endorsed by, or acting for any exchange or platform named or shown in the app, and a reference to one is not a recommendation of it. Third-party data can be delayed, incomplete, or wrong, and markets can halt, settle differently than expected, or become unavailable. Do not rely on the app as your only source before making a decision — check the underlying market yourself.</p>
+<h2>12. Availability of the service</h2>
+<p>We work to keep the service available and accurate, but it is provided as-is. The service may be interrupted, delayed, or contain errors, including during fast-moving markets — which can be exactly when a signal matters most. A missed, late, or wrong signal, chart, or notification is not a basis for a refund. We may maintain, update, suspend, or discontinue any part of the service, and we will give reasonable notice of a full shutdown where we can.</p>
+<h2>13. Our content and your use of it</h2>
+<p>The app, its design, its signals, and its content belong to us or our licensors. Your membership gives you a personal, non-transferable right to use them for your own evaluation only. It does not transfer any ownership to you. You keep ownership of anything you submit to us, and you give us permission to use a submission only as needed to run and improve the service, unless we agree otherwise in writing.</p>
+<h2>14. Disclaimer of warranties</h2>
+<p>To the fullest extent allowed by law, the service is provided "as is" and "as available," without warranties of any kind, express or implied — including any implied warranty that the service is fit for a particular purpose, that signals will be accurate or profitable, or that the service will be uninterrupted or error-free. No statement in the app, in a callout, or from us creates a warranty that is not written in this section.</p>
+<h2>15. Limitation of liability</h2>
+<p>To the fullest extent allowed by law: we are not liable for any trading loss, lost profit, lost opportunity, or other indirect or consequential loss arising from your use of — or inability to use — the service or any signal in it, whether or not we were warned such a loss was possible. Our total liability to you for any claim connected with the service is limited to the total amount you paid us in the three months before the event giving rise to the claim. Nothing in these Terms limits liability that cannot be limited under applicable law.</p>
+<h2>16. Ending access</h2>
+<p>You may stop using the service and cancel at any time under the <a href="/refund-policy">Refund and Cancellation Policy</a>. We may pause or close an account, with or without notice, if these Terms are broken, if required by law, or if the service is discontinued. Sections that by their nature should survive — including sections 2, 14, 15, and 17 — survive the end of your access.</p>
+<h2>17. Governing law</h2>
+<p>These Terms are governed by the laws of Virginia, without regard to its conflict-of-laws rules. Any dispute connected with the service will be handled in the state or federal courts located in that state, unless applicable law gives you a right to bring it elsewhere.</p>
+<h2>18. Changes to these Terms</h2>
+<p>We may update these Terms. When we make a material change, we will post the new version in the app, update the version and effective date at the top, and — for changes that affect price, refunds, or the nature of the service — notify account holders by email or in the app before the change takes effect for them. Continuing to use the service after a change takes effect means you agree to the updated Terms. A change to the Refund and Cancellation Policy will not apply retroactively to a period you have already paid for.</p>
+<h2>19. General</h2>
+<p>These Terms, together with the Refund and Cancellation Policy, are the entire agreement between you and us about the service, and they replace any earlier understanding about it. If a court finds part of these Terms unenforceable, the rest continues in force. Our failure to enforce a provision is not a waiver of it. You may not assign your account or these Terms; we may assign ours as part of a transfer of the service, with notice to you.</p>
+<h2>20. Contact</h2>
+<p>Questions about these Terms, your account, or billing: <a href="mailto:btcoraclepro@proton.me">btcoraclepro@proton.me</a>. Operator: Cheli S Williams, operator of BTC Oracle Pro.</p>"""
+
+
+@app.get("/terms")
+def terms_page():
+    return HTMLResponse(
+        _legal_page(
+            "Terms of Use",
+            "Terms version: " + auth.TERMS_VERSION
+            + " · Effective date: November 18, 2026 · Service: BTC Oracle Pro "
+            "(also shown under the display name \u201cPulse\u201d)",
+            TERMS_BODY,
+        )
+    )
+
+
+REFUND_BODY = """<p class="rule"><strong>The rule in one line.</strong><br>All BTC Oracle Pro subscription payments are non-refundable. You can cancel at any time, and cancelling stops the next renewal — it does not refund the current period. Your VIP access continues until the end of the period you have already paid for.</p>
+<p><em>This policy is part of the Terms of Use. It is shown on its own page in the app and linked at signup and at checkout.</em></p>
+<h2>1. No refunds</h2>
+<p>We do not offer refunds — full, partial, or prorated — for any subscription payment, for any reason, including:</p>
+<ul>
+<li>you changed your mind, forgot to cancel, or did not use the service during a paid period;</li>
+<li>you disagree with, did not act on, or lost money acting on a signal or callout;</li>
+<li>a win rate, streak, or result was different from what you hoped or expected;</li>
+<li>a feature, market, or part of the service changed, was interrupted, or was unavailable for part of a period; or</li>
+<li>your account was closed because these Terms were broken, including the 18-and-over rule.</li>
+</ul>
+<p>By creating an account and by subscribing, you acknowledge this no-refunds rule and agree to it before any payment is taken.</p>
+<h2>2. Cancelling your subscription</h2>
+<ul>
+<li><strong>How.</strong> Cancel at any time from your account through the Stripe customer portal linked in the app (Account / Manage subscription). You do not need to email us or give a reason.</li>
+<li><strong>Effect.</strong> Cancelling stops automatic renewal. No further charges will be made after you cancel, except a charge that was already processing when you cancelled.</li>
+<li><strong>Access after cancelling.</strong> Your VIP access continues until the end of the period you have already paid for, and then ends. Your free account, if you keep it, is not deleted by cancelling VIP.</li>
+<li><strong>Rejoining.</strong> If you rejoin later, you will pay the price in effect at that time. A locked promotional price from an earlier subscription does not carry over after a cancellation.</li>
+<li><strong>Important.</strong> Deleting your account, uninstalling, or simply not using the service does not by itself cancel a subscription. Cancel in the Stripe portal to stop renewal.</li>
+</ul>
+<h2>3. Renewals and charges</h2>
+<p>Subscriptions renew automatically each month until cancelled, as described in section 7 of the Terms. Each renewal charge is a new non-refundable payment under section 1 of this policy. Check your renewal date in the Stripe portal — it is shown there at all times — and cancel before that date if you do not want another period.</p>
+<h2>4. The only exceptions</h2>
+<p>The no-refunds rule has only these narrow exceptions:</p>
+<ol>
+<li><strong>Required by law.</strong> If applicable law requires a refund in a particular situation, we will provide it as the law requires.</li>
+<li><strong>Clear billing error.</strong> If you were charged twice for the same period, charged after a confirmed cancellation had already taken effect, or charged an amount different from the amount shown at checkout, contact us at <a href="mailto:btcoraclepro@proton.me">btcoraclepro@proton.me</a> within 30 days of the charge. If we confirm the error, we will refund the erroneous amount to your original payment method.</li>
+</ol>
+<p><em>Nothing else is an exception — in particular, dissatisfaction with signals or results is not a billing error.</em></p>
+<h2>5. Payment disputes</h2>
+<p>If something looks wrong with a charge, contact us first at <a href="mailto:btcoraclepro@proton.me">btcoraclepro@proton.me</a> — most billing errors can be confirmed and fixed faster that way. If you dispute a charge with your bank or card issuer instead, we may provide them with your signup agreement record, these Terms, and this policy as evidence of the terms you agreed to, and your access may be paused while a dispute is open.</p>
+<h2>6. Free access and promotions</h2>
+<p>No payment is taken for free access, so nothing in this policy applies to it. If a promotion offers a free or discounted introductory period, its stated conditions apply to that period, and the first full payment taken after it is non-refundable under section 1 like any other payment.</p>"""
+
+
+@app.get("/refund-policy")
+def refund_policy_page():
+    return HTMLResponse(
+        _legal_page(
+            "Refund and Cancellation Policy",
+            "Policy version: " + auth.POLICY_VERSION
+            + " · Effective date: November 18, 2026 · Part of the "
+            "Terms of Use",
+            REFUND_BODY,
+        )
     )
 
 
