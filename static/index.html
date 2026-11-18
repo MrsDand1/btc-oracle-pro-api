@@ -1527,6 +1527,47 @@ function fmtUsd2(v) {
   if (v === null || v === undefined || isNaN(v)) return "—";
   return "$" + Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+/* ---- Extra spot sources (piece 2): cross-exchange consensus ----
+   Display/diagnostic only — never a signal input. The server's /live
+   payload (liveData.markets.btc_15m.extra_spot) already carries the
+   Coinbase spot and the Binance.US BTCUSD spot it polls every 60s, so
+   this line needs no new request: it combines those two with the
+   Kraken mid the depth panel below already computed from the depth
+   feed this page polls every 15s. Threshold mirrors tracker.py
+   SPOT_DIVERGENCE_PCT (0.20%): ~7x the 0.01-0.03% simultaneous
+   cross-exchange dispersion measured 2026-11-18. BTC tab only. */
+const SPOT_DIVERGENCE_PCT = 0.20;
+function spotConsensusHTML(krakenMid) {
+  const num = (v) => (typeof v === "number" && isFinite(v)) ? v : null;
+  const mid = num(krakenMid);
+  if (mid === null) return "";
+  const m = (liveData && liveData.markets && liveData.markets.btc_15m) || null;
+  const ex = (m && m.extra_spot) || null;
+  if (!ex) return "";
+  const prices = [];
+  const cb = num(ex.coinbase_usd);
+  if (cb !== null) prices.push(["Coinbase", cb]);
+  prices.push(["Kraken mid", mid]);
+  const bu = num(ex.binanceus_usd);
+  if (bu !== null) prices.push(["Binance.US", bu]);
+  if (prices.length < 2) return "";
+  let worst = 0, worstPair = null;
+  for (let i = 0; i < prices.length; i++) {
+    for (let j = i + 1; j < prices.length; j++) {
+      const s = Math.abs(prices[i][1] - prices[j][1]) / ((prices[i][1] + prices[j][1]) / 2) * 100;
+      if (s > worst) { worst = s; worstPair = prices[i][0] + " vs " + prices[j][0]; }
+    }
+  }
+  const parts = prices.map((p) => p[0] + " " + fmtUsd2(p[1])).join(" · ");
+  if (worst > SPOT_DIVERGENCE_PCT) {
+    return '<div class="depth-meta" style="color:var(--amber)">Cross-exchange check: ' + esc(parts)
+      + ' — DIVERGE by ' + worst.toFixed(3) + '% (' + esc(worstPair) + ', threshold '
+      + SPOT_DIVERGENCE_PCT.toFixed(2) + '%) · diagnostic only, not a signal</div>';
+  }
+  return '<div class="depth-meta">Cross-exchange check: ' + esc(parts)
+    + ' — agree within ' + worst.toFixed(3) + '% (threshold '
+    + SPOT_DIVERGENCE_PCT.toFixed(2) + '%)</div>';
+}
 function parseKrakenBook(bidsRaw, asksRaw) {
   const parse = (rows) => (Array.isArray(rows) ? rows : []).slice(0, 8).map((r) => ({
     price: parseFloat(r[0]), size: parseFloat(r[1]),
@@ -1575,6 +1616,10 @@ function krakenDepthBodyHTML(key) {
       + '<span>Mid <b>' + fmtUsd2(mid) + '</b></span>'
       + '<span>Best bid <b>' + fmtUsd2(bids[0].price) + '</b></span>'
       + '<span>Best ask <b>' + fmtUsd2(asks[0].price) + '</b></span></div>';
+    // Extra spot sources (piece 2): three-way consensus vs Coinbase +
+    // Binance.US, BTC tab only. No new request — the server's extra_spot
+    // block rides on the /live payload this page already fetches.
+    if (key === "btc_15m") meta += spotConsensusHTML(mid);
   }
   return '<div class="imb-label"><span>Book imbalance · shown levels</span><span>within top 8 each side</span></div>'
     + '<div class="imb-bar" aria-hidden="true"><div class="b" style="width:' + bidPct.toFixed(1) + '%"></div><div class="a" style="width:' + (100 - bidPct).toFixed(1) + '%"></div></div>'
